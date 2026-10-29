@@ -1,0 +1,8 @@
+{
+  "name": "Pycode",
+  "description": "AI-powered Python learning platform that helps beginners understand code, fix errors, and learn programming concepts with step-by-step function breakdowns, interactive flowcharts, and adaptive layouts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

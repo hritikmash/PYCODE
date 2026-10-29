@@ -1,0 +1,86 @@
+[
+  {
+    "id": "usr_viewer_default",
+    "email": "viewer@pycode.dev",
+    "name": "Python Explorer",
+    "avatar": "🐍",
+    "role": "viewer",
+    "skillLevel": "Beginner",
+    "createdAt": "2026-10-28T10:01:28.258Z",
+    "lastLoginAt": "2026-10-28T10:01:28.325Z",
+    "passwordHash": "46b94c67a2e3b333eab19f6c59751903947dc60eb811956e08e82fe7f6a96f1990ecb2a966aa11e9f34ee0e76c0eee92b0678a602436e1932c7a8eff03e66452",
+    "salt": "ce022a5999c2d659d4302ebc52711b93"
+  },
+  {
+    "id": "usr_1793181694373_4029ab27",
+    "email": "newviewer@test.com",
+    "name": "Code Viewer",
+    "avatar": "⚡",
+    "role": "member",
+    "skillLevel": "Intermediate",
+    "createdAt": "2026-10-28T10:01:34.373Z",
+    "lastLoginAt": "2026-10-28T10:01:34.373Z",
+    "salt": "35dd9026fad9d339a16eafc4ccde6c97",
+    "passwordHash": "88c7db67e07d8b564b3817fc6bce3fb70b8a3bdc94b93d0ecf25ef962a9312b7755162076c0075bc31b9ab152c4170b0825157924486aa1c308df8ff91cfa3ed"
+  },
+  {
+    "id": "usr_guest_1793181699483_3163",
+    "email": "guest_3163_1793181699434@pycode.guest",
+    "name": "Shared Link Viewer",
+    "avatar": "👀",
+    "role": "viewer",
+    "skillLevel": "Beginner",
+    "createdAt": "2026-10-28T10:01:39.483Z",
+    "lastLoginAt": "2026-10-28T10:01:39.483Z",
+    "salt": "7fd7817b623ebef3c4aaa4fbdfd43b56",
+    "passwordHash": "6ff60e8e773214d9b68ebcd157bfe1fcff8c91ff5073be7bc7f23f98bb7d195dbbcbeb3588fecbdaa21e30fa42bacb2c9215da3928f4a8f160dbb5759c1b6317"
+  },
+  {
+    "id": "usr_google_1793251226075_c9105760",
+    "email": "hritikyadav1612@gmail.com",
+    "name": "Hritik",
+    "avatar": "👑",
+    "role": "admin",
+    "skillLevel": "Intermediate",
+    "createdAt": "2026-10-29T05:20:25.988Z",
+    "lastLoginAt": "2026-10-29T07:27:33.434Z",
+    "salt": "03ff6d5d50f479c5b5bc1bd930b54b36",
+    "passwordHash": "abc0b8abaa91abe9fd9df7e944f3da6656a145d1482ae9908da5f7ef1894cdaef8d7f75a7ac463cae7d0a9b5f08354c96f5c3ca157c18b0639eb7c06c1b3adf4"
+  },
+  {
+    "id": "usr_guest_1793258861322_6042",
+    "email": "guest_6042_1793258861241@pycode.guest",
+    "name": "Aarav Python Coder",
+    "avatar": "👀",
+    "role": "viewer",
+    "skillLevel": "Beginner",
+    "createdAt": "2026-10-29T07:27:41.322Z",
+    "lastLoginAt": "2026-10-29T07:27:41.322Z",
+    "salt": "cebc47e116efcb539c8499051f5f2e84",
+    "passwordHash": "be2d6f68d6108654cd78a0ccca964021e62a4b8e68b3854d4e433ad39f50ab39c9745c1df71ec578ab18c6baf4b918327423aa7826ccca1242a5228f79204299"
+  },
+  {
+    "id": "usr_1793258875800_95444249",
+    "email": "rohit@cricket.org",
+    "name": "Rohit Sharma",
+    "avatar": "🏏",
+    "role": "member",
+    "skillLevel": "Advanced",
+    "createdAt": "2026-10-29T07:27:55.800Z",
+    "lastLoginAt": "2026-10-29T07:27:55.800Z",
+    "salt": "60e8cd05965d29295fcb0a153963031f",
+    "passwordHash": "ad7f5d09e001510ea513a35c0bf2902d28b85ddaf97e7b378265590bfad642f9c559b72781ddfccb9a6e17d05d4e4c142c04942f1bffa99436a0747fd48751c7"
+  },
+  {
+    "id": "usr_google_1793261832756_ce69a39b",
+    "email": "priya.patel@gmail.com",
+    "name": "Priya Patel",
+    "avatar": "⚡",
+    "role": "member",
+    "skillLevel": "Intermediate",
+    "createdAt": "2026-10-29T08:17:12.673Z",
+    "lastLoginAt": "2026-10-29T08:17:12.673Z",
+    "salt": "477e0a8c7cdca3667d07f1ac097e36e5",
+    "passwordHash": "dcdf4e3944616afca4779610317e936cb1c2586f67aae249c5387ea50cf239e970092003a44f73cefaf1e4d322f83072f588aae66389ef7370a62e5fa4fd5df7"
+  }
+]
