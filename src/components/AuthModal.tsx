@@ -3,14 +3,12 @@ import {
   X, 
   LogIn, 
   UserPlus, 
-  UserCheck, 
   Sparkles, 
   Lock, 
   Mail, 
   User, 
   Eye, 
   EyeOff, 
-  CheckCircle2, 
   AlertCircle,
   Zap
 } from 'lucide-react';
@@ -26,7 +24,9 @@ export const AuthModal: React.FC = () => {
     login, 
     register, 
     loginAsGuest,
-    openGoogleWindow 
+    openGoogleWindow,
+    signInWithFirebaseGoogle,
+    hasRegisteredBefore
   } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'signin' | 'signup' | 'guest'>(authModalTab);
@@ -43,13 +43,11 @@ export const AuthModal: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Sync tab with context if opened with specific tab
   React.useEffect(() => {
     setActiveTab(authModalTab);
     setErrorMessage(null);
-    setSuccessMessage(null);
   }, [authModalTab, isAuthModalOpen]);
 
   if (!isAuthModalOpen) return null;
@@ -73,7 +71,7 @@ export const AuthModal: React.FC = () => {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setErrorMessage('Please enter your display name');
+      setErrorMessage('Please enter your preferred name');
       return;
     }
     if (!email.trim() || !email.includes('@')) {
@@ -88,7 +86,7 @@ export const AuthModal: React.FC = () => {
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const res = await register(name, email, password, selectedAvatar, skillLevel);
+    const res = await register(name.trim(), email.trim(), password, selectedAvatar, skillLevel);
     setIsSubmitting(false);
     if (!res.success) {
       setErrorMessage(res.error || 'Failed to create account');
@@ -107,18 +105,25 @@ export const AuthModal: React.FC = () => {
     }
   };
 
-  const handleGoogleSignIn = () => {
-    openGoogleWindow();
-  };
-
-  const loadDemoViewer = () => {
-    setEmail('viewer@pycode.dev');
-    setPassword('pycode123');
+  const handleGoogleSignIn = async () => {
+    setIsSubmitting(true);
     setErrorMessage(null);
+    try {
+      // Redirect user to the dedicated Google login window where they can use their own email
+      openGoogleWindow();
+      const res = await signInWithFirebaseGoogle();
+      if (!res.success && !res.isPopupBlocked) {
+        setErrorMessage(res.error || 'Google authentication failed');
+      }
+    } catch {
+      openGoogleWindow();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 select-none">
       <div 
         className="w-full max-w-md bg-[#1e1f20] border border-[#282a2c] rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white"
         onClick={(e) => e.stopPropagation()}
@@ -130,62 +135,78 @@ export const AuthModal: React.FC = () => {
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-semibold text-base text-white tracking-tight">Pycode Viewer Account</h3>
-              <p className="text-[11px] text-[#8e918f]">Sign in to save Python sessions & personalized learning</p>
+              <h3 className="font-semibold text-base text-white tracking-tight">Pycode Account</h3>
+              <p className="text-[11px] text-[#8e918f]">Multi-device synced Python workspace</p>
             </div>
           </div>
           <button
             type="button"
             onClick={closeAuthModal}
-            className="p-1.5 rounded-full hover:bg-[#282a2c] text-[#8e918f] hover:text-white transition-colors"
+            className="p-1.5 rounded-full hover:bg-[#282a2c] text-[#8e918f] hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-[#282a2c] bg-[#1a1b1c] p-1 gap-1">
-          <button
-            type="button"
-            onClick={() => { setActiveTab('signin'); setErrorMessage(null); }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl transition-all ${
-              activeTab === 'signin'
-                ? 'bg-[#004a77] text-white shadow-xs'
-                : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
-            }`}
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Sign In</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setActiveTab('signup'); setErrorMessage(null); }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl transition-all ${
-              activeTab === 'signup'
-                ? 'bg-[#004a77] text-white shadow-xs'
-                : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Create Account</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setActiveTab('guest'); setErrorMessage(null); }}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl transition-all ${
-              activeTab === 'guest'
-                ? 'bg-[#004a77] text-white shadow-xs'
-                : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>Guest Access</span>
-          </button>
-        </div>
+        {/* Section 5 Two-Option Authentication Tabs */}
+        {!hasRegisteredBefore ? (
+          <div className="flex border-b border-[#282a2c] bg-[#1a1b1c] p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => { setActiveTab('signup'); setErrorMessage(null); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+                activeTab === 'signup'
+                  ? 'bg-[#004a77] text-white shadow-xs'
+                  : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Sign Up</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('guest'); setErrorMessage(null); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+                activeTab === 'guest'
+                  ? 'bg-[#004a77] text-white shadow-xs'
+                  : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Sign In as Guest</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex border-b border-[#282a2c] bg-[#1a1b1c] p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => { setActiveTab('signin'); setErrorMessage(null); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+                activeTab === 'signin'
+                  ? 'bg-[#004a77] text-white shadow-xs'
+                  : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
+              }`}
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('guest'); setErrorMessage(null); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+                activeTab === 'guest'
+                  ? 'bg-[#004a77] text-white shadow-xs'
+                  : 'text-[#8e918f] hover:text-[#c4c7c5] hover:bg-[#232527]'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Guest Login</span>
+            </button>
+          </div>
+        )}
 
         {/* Form Body */}
         <div className="p-6 space-y-4">
-          {/* Status Banners */}
           {errorMessage && (
             <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
@@ -193,22 +214,14 @@ export const AuthModal: React.FC = () => {
             </div>
           )}
 
-          {successMessage && (
-            <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-              <span>{successMessage}</span>
-            </div>
-          )}
-
-          {/* TAB 1: SIGN IN */}
+          {/* TAB: SIGN IN */}
           {activeTab === 'signin' && (
             <div className="space-y-4">
-              {/* Direct Google Sign In Button */}
               <button
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={isSubmitting}
-                className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-[#f1f3f4] text-[#1f1f1f] font-semibold text-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 shadow-sm active:scale-[0.99]"
+                className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-[#f1f3f4] text-[#1f1f1f] font-semibold text-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 shadow-sm"
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z" />
@@ -221,148 +234,156 @@ export const AuthModal: React.FC = () => {
 
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-[#282a2c]" />
-                <span className="text-[10px] text-[#8e918f] uppercase font-mono tracking-wider">or sign in with email</span>
+                <span className="text-[10px] text-[#8e918f] uppercase font-mono tracking-wider">or email password</span>
                 <div className="flex-1 h-px bg-[#282a2c]" />
               </div>
 
-              <form onSubmit={handleSignIn} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-[#c4c7c5] mb-1.5">Email Address</label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="viewer@example.com"
-                    required
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa] outline-none transition-all"
-                  />
+              <form onSubmit={handleSignIn} className="space-y-3.5">
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-[#c4c7c5]">Email</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      required
+                      className="w-full bg-[#141516] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] outline-none"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-[#c4c7c5] mb-1.5">Password</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl pl-9 pr-10 py-2.5 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa] outline-none transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8e918f] hover:text-white"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-[#c4c7c5]">Password</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      className="w-full bg-[#141516] border border-[#3b3d40] rounded-xl pl-9 pr-9 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8e918f] hover:text-white"
+                    >
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="pt-1">
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-medium text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-sky-950/40"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-semibold text-xs transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  {isSubmitting ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <LogIn className="w-4 h-4" />
-                      <span>Sign In to Pycode</span>
-                    </>
-                  )}
+                  {isSubmitting ? 'Signing in...' : 'Sign In'}
                 </button>
-              </div>
+              </form>
 
-              {/* Demo Account Helper */}
-              <div className="pt-2 border-t border-[#282a2c]/60 text-center">
+              <div className="text-center pt-1">
                 <button
                   type="button"
-                  onClick={loadDemoViewer}
-                  className="text-[11px] text-[#a8c7fa] hover:text-white hover:underline transition-colors"
+                  onClick={() => { setActiveTab('signup'); setErrorMessage(null); }}
+                  className="text-xs text-[#a8c7fa] hover:underline cursor-pointer"
                 >
-                  ⚡ Use Demo Viewer credentials (viewer@pycode.dev / pycode123)
+                  Need an account? Sign up
                 </button>
               </div>
-            </form>
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* TAB 2: CREATE ACCOUNT */}
+          {/* TAB: SIGN UP */}
           {activeTab === 'signup' && (
-            <form onSubmit={handleSignUp} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-[#c4c7c5] mb-1">Your Name</label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Alex Chen"
-                    required
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa] outline-none transition-all"
-                  />
-                </div>
-              </div>
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-[#f1f3f4] text-[#1f1f1f] font-semibold text-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 shadow-sm"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.665-5.17 3.665-9.12z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.24v3.13C3.26 21.36 7.33 24 12 24z" />
+                  <path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.57H1.24C.45 8.14 0 9.9 0 12s.45 3.86 1.24 5.43l4.04-3.14z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.24 6.57l4.04 3.14c.95-2.83 3.6-4.96 6.72-4.96z" />
+                </svg>
+                <span>Sign up with Google</span>
+              </button>
 
-              <div>
-                <label className="block text-xs font-medium text-[#c4c7c5] mb-1">Email Address</label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="alex@domain.com"
-                    required
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa] outline-none transition-all"
-                  />
+              <form onSubmit={handleSignUp} className="space-y-3.5">
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-[#c4c7c5]">
+                    Your Name <span className="text-[#a8c7fa] text-[10px]">(preferred display name)</span>
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Rahul Sharma, Madhav"
+                      required
+                      className="w-full bg-[#141516] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] outline-none"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-[#c4c7c5] mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
-                    required
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl pl-9 pr-10 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa] outline-none transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8e918f] hover:text-white"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-[#c4c7c5]">Email</label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      required
+                      className="w-full bg-[#141516] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] outline-none"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {/* Avatar Picker & Skill Level in 2 columns */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[11px] font-medium text-[#8e918f] mb-1">Pick Avatar</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {AVATAR_OPTIONS.slice(0, 6).map((av) => (
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-[#c4c7c5]">Password</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      minLength={6}
+                      className="w-full bg-[#141516] border border-[#3b3d40] rounded-xl pl-9 pr-9 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8e918f] hover:text-white"
+                    >
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Avatar Picker */}
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-[#8e918f]">Avatar Icon</label>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {AVATAR_OPTIONS.map((av) => (
                       <button
                         key={av}
                         type="button"
                         onClick={() => setSelectedAvatar(av)}
-                        className={`w-7 h-7 rounded-lg text-sm flex items-center justify-center transition-all ${
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm transition-all cursor-pointer ${
                           selectedAvatar === av
-                            ? 'bg-[#004a77] ring-2 ring-[#a8c7fa] scale-110'
-                            : 'bg-[#131314] hover:bg-[#282a2c]'
+                            ? 'bg-sky-500/20 border-2 border-sky-400 scale-105'
+                            : 'bg-[#141516] border border-[#282a2c] hover:border-[#3b3d40]'
                         }`}
                       >
                         {av}
@@ -371,85 +392,66 @@ export const AuthModal: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-[#8e918f] mb-1">Python Skill Level</label>
-                  <select
-                    value={skillLevel}
-                    onChange={(e) => setSkillLevel(e.target.value as any)}
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl px-2.5 py-1.5 text-xs text-white focus:border-[#a8c7fa] outline-none"
-                  >
-                    <option value="Beginner">Beginner (Simpler)</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced (Deep Dive)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-emerald-950/40"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-semibold text-xs transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  {isSubmitting ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <UserPlus className="w-4 h-4" />
-                      <span>Create Account & Join</span>
-                    </>
-                  )}
+                  {isSubmitting ? 'Creating account...' : 'Create Account'}
+                </button>
+              </form>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('signin'); setErrorMessage(null); }}
+                  className="text-xs text-[#a8c7fa] hover:underline cursor-pointer"
+                >
+                  Already have an account? Sign in
                 </button>
               </div>
-            </form>
+            </div>
           )}
 
-          {/* TAB 3: GUEST INSTANT ACCESS */}
+          {/* TAB: GUEST */}
           {activeTab === 'guest' && (
             <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-[#131314] border border-[#282a2c] space-y-2">
-                <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
-                  <Zap className="w-4 h-4" />
-                  <span>Instant Viewer Access (No Password Required)</span>
+              <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-800/40 text-xs text-amber-200/90 space-y-1">
+                <div className="font-semibold text-amber-300 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Instant Guest Access</span>
                 </div>
-                <p className="text-[11px] text-[#8e918f] leading-relaxed">
-                  Arrived from a shared link? Jump straight into testing Pycode with a temporary viewer handle. You can upgrade to a permanent account at any time.
+                <p className="text-[11px] text-amber-200/70">
+                  Quick guest session with Python execution. No password required.
                 </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-[#c4c7c5] mb-1.5">
-                  Viewer Display Name (Optional)
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={guestName}
-                    onChange={(e) => setGuestName(e.target.value)}
-                    placeholder="Guest Python Explorer"
-                    className="w-full bg-[#131314] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] focus:ring-1 focus:ring-[#a8c7fa] outline-none transition-all"
-                  />
+              <form onSubmit={handleGuestSignIn} className="space-y-3.5">
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-[#c4c7c5]">
+                    Your Name or Handle <span className="text-[10px] text-[#8e918f]">(optional)</span>
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-[#8e918f] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={guestName}
+                      onChange={(e) => setGuestName(e.target.value)}
+                      placeholder="e.g. Sam, Python Explorer"
+                      className="w-full bg-[#141516] border border-[#3b3d40] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#5e6160] focus:border-[#a8c7fa] outline-none"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div className="pt-2">
                 <button
-                  type="button"
-                  onClick={handleGuestSignIn}
+                  type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white font-medium text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-orange-950/40"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white font-semibold text-xs transition-all shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isSubmitting ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <UserCheck className="w-4 h-4" />
-                      <span>Continue as Guest Viewer</span>
-                    </>
-                  )}
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>{isSubmitting ? 'Entering as Guest...' : 'Enter Studio as Guest'}</span>
                 </button>
-              </div>
+              </form>
             </div>
           )}
         </div>

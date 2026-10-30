@@ -39,6 +39,11 @@ app.get(['/health', '/_health', '/ping', '/api/health'], (_req, res) => {
 // API endpoints
 app.use('/api', apiRouter);
 
+// Strict API 404 handler: Any unhandled /api/* request must return JSON, NEVER index.html
+app.all('/api/*', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
 // Frontend static serving & Vite Dev Server handling
 const distPath = path.resolve(process.cwd(), 'dist');
 const indexHtmlPath = path.join(distPath, 'index.html');

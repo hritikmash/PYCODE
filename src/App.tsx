@@ -14,7 +14,8 @@ import { CinematicIntro } from './components/CinematicIntro';
 import { AIEngineModal } from './components/AIEngineModal';
 import { AuthModal } from './components/AuthModal';
 import { AuthPage } from './components/AuthPage';
-import { ViewerActivityModal } from './components/ViewerActivityModal';
+import { AdminDashboardModal } from './components/AdminDashboardModal';
+import { FeedbackModal } from './components/FeedbackModal';
 import { GoogleLoginWindow } from './components/GoogleLoginWindow';
 import { useAuth } from './context/AuthContext';
 import { resolveUserGreetingName } from './utils/userName';
@@ -317,7 +318,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: codeToRun })
       });
-      const data = await res.json();
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json() : { error: await res.text() };
       setQuickPyOutput(data);
     } catch (err: any) {
       setErrorMessage('Could not connect to Python runner: ' + err.message);
@@ -383,11 +385,19 @@ export default function App() {
         })
       });
 
+      const ct = response.headers.get('content-type') || '';
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server responded with ${response.status}`);
+        let errMsg = `Server responded with ${response.status}`;
+        if (ct.includes('application/json')) {
+          const errorData = await response.json().catch(() => ({}));
+          if (errorData.error) errMsg = errorData.error;
+        }
+        throw new Error(errMsg);
       }
 
+      if (!ct.includes('application/json')) {
+        throw new Error(`Server returned unexpected response (${response.status})`);
+      }
       const data: PythonDecodeResponse = await response.json();
 
       // Create Assistant Message
@@ -528,8 +538,11 @@ ${analysisResult.expectedOutput}`;
       {/* Viewer Authentication Modal */}
       <AuthModal />
 
-      {/* Owner Secret View: Viewer Activity Tracker Modal */}
-      <ViewerActivityModal />
+      {/* Live Admin & Multi-Device Control Center */}
+      <AdminDashboardModal />
+
+      {/* Site Performance & Upgrade Feedback Modal */}
+      <FeedbackModal />
 
       {/* Separate Google Account Login Window */}
       <GoogleLoginWindow />

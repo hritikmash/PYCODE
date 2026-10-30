@@ -1,0 +1,465 @@
+Completely audit, fix, and upgrade the existing application's authentication system, user management, role-based access control, guest login, multi-device sessions, personalized greetings, and live admin login tracking.
+
+IMPORTANT:
+- Work on the existing application and its current codebase.
+- Inspect the existing authentication flow, database, backend, frontend, routing, deployment configuration, and role-management system before making changes.
+- Preserve all existing application features and UI wherever possible.
+- Fix the underlying causes of the issues rather than applying temporary frontend-only workarounds.
+- Implement and test every requirement below.
+- Do not leave placeholder implementations, incomplete authentication flows, or simulated login-tracking data.
+- Do not break the existing application while implementing these changes.
+
+==================================================
+1. PERSONALIZED SIGNUP AND USER GREETING
+==================================================
+
+Implement a reliable user-name management system.
+
+A. During signup:
+- If a user explicitly enters their name in the signup form, save that name as their preferred display name.
+- Always prioritize the name entered during signup over any name derived from their email address.
+- Use the saved signup name to greet the user throughout the application.
+- Do not replace the user's explicitly provided name with their email-derived name when they sign in again.
+- Preserve the user's preferred name across sessions and devices.
+
+B. If the user does not provide a name:
+- Attempt to derive an appropriate first name from the email address.
+- Use only the inferred first name for the greeting, not the surname or the entire email address.
+- Handle common email formats and separators intelligently.
+
+Examples:
+- Email: mashyadav@gmail.com
+  Inferred first name: Mash
+  Greeting: Hello, Mash!
+
+- Email: yadavmash@gmail.com
+  Inferred first name: Mash
+  Greeting: Hello, Mash!
+
+- Email: rahul.sharma@gmail.com
+  Inferred first name: Rahul
+  Greeting: Hello, Rahul!
+
+- Email: priya123@gmail.com
+  Inferred first name: Priya
+
+C. Name extraction rules:
+- For email addresses with clear separators, such as periods, underscores, or hyphens, prioritize the first recognizable name component.
+- For concatenated names, such as mashyadav or yadavmash, attempt to identify the first name using reasonable name parsing or an available name profile.
+- Do not assume that every email username contains the first name followed by the surname.
+- When the first name cannot be reliably identified, use a reasonable fallback, such as the email provider's available profile name or a neutral greeting.
+- Never display the full email address as the greeting when a suitable name is available.
+- Do not invent a person's name when it cannot be determined reliably.
+
+D. Google authentication:
+- When a user signs in through Google, use their Google profile name as a fallback only if they have not explicitly provided a preferred name during signup.
+- If a preferred name was already saved during signup, continue using that name.
+- Keep the greeting consistent across Google login, regular login, guest login where a name is available, and multiple devices.
+
+E. Greeting behavior:
+- Always greet authenticated users by their preferred name.
+- Display the greeting consistently on the dashboard, home screen, and other appropriate application screens.
+- Example: "Welcome back, Rahul!"
+- Avoid displaying incorrect names, full email addresses, or the administrator's name to unrelated users.
+
+==================================================
+2. SECURE GOOGLE LOGIN AND EMAIL AUTHENTICATION
+==================================================
+
+Fix the existing Google authentication implementation.
+
+Requirements:
+- Users must be able to authenticate using their own Google accounts.
+- When Google login is selected, allow the user to select or authenticate with their own account.
+- Do not automatically authenticate ordinary users using the owner's Google identity.
+- Do not silently reuse the owner's account or grant the owner's permissions to another person.
+- If the browser already has an active Google session, provide an appropriate account-selection or account-switching mechanism where necessary.
+- Do not rely exclusively on the Google account currently active in the browser.
+- Support secure sign-in using the application's existing email authentication method, if available.
+- Properly handle cancelled login attempts, invalid credentials, expired sessions, and authentication failures.
+- Do not expose access tokens, refresh tokens, passwords, private credentials, or other authentication secrets in the frontend.
+
+IMPORTANT:
+Google authentication identifies a user. It must not independently determine whether that user is an administrator.
+
+==================================================
+3. PREDEFINED OWNER EMAIL AND SEPARATE ADMIN
+   AUTHORIZATION SYSTEM
+==================================================
+
+Implement two compatible methods of administrator authorization:
+
+A. Predefined owner email:
+- Maintain a securely configured owner email address.
+- The owner email must be configured through a trusted server-side environment variable or equivalent secure configuration.
+- Do not hardcode secret configuration in public frontend code.
+- When a user authenticates, compare their verified email against the configured owner email using a secure, consistent comparison.
+- Grant owner privileges only after successful authentication and verification of the configured owner identity.
+- Never grant owner permissions simply because someone knows the owner's email address.
+
+B. Separate administrator authorization:
+- Support a separate, secure mechanism for authorizing additional administrators.
+- This may use a trusted server-side role assignment, a protected admin-management interface, or another existing secure authorization mechanism.
+- Only an already authorized owner or administrator with the appropriate permissions may assign administrative roles.
+- Never allow an ordinary user to promote themselves to administrator by modifying frontend data, local storage, request parameters, or API calls.
+- Keep owner privileges distinct from ordinary administrator privileges wherever the existing application requires that distinction.
+- The owner must retain control over the application's critical security settings and administrator assignments.
+
+C. Owner authentication experience:
+- Do not repeatedly ask the owner to authenticate when a valid session already exists.
+- Preserve the owner's authenticated session securely across page refreshes and supported devices.
+- Do not disable authentication checks or remove required authentication for sensitive operations.
+- If the owner has a valid session, open the application without unnecessarily interrupting them with repeated login requests.
+- If the session expires or becomes invalid, require appropriate reauthentication.
+
+D. Role-based access:
+- Define and enforce separate permissions for:
+  1. Owner
+  2. Administrator
+  3. Normal user
+  4. Guest
+
+- Users must never inherit the owner's permissions.
+- Administrators must receive only the permissions explicitly assigned to their role.
+- Normal users must never access administrator-only pages, APIs, data, or settings.
+- Guests must receive only the limited permissions permitted for guest sessions.
+- Enforce authorization on the backend, not only by hiding buttons or pages in the frontend.
+
+==================================================
+4. SHARED APP LINK MUST NEVER GRANT OWNER
+   OR ADMINISTRATOR PERMISSIONS
+==================================================
+
+Fix authorization issues associated with sharing the application's URL.
+
+Requirements:
+- Anyone opening the shared application link must initially receive only the permissions appropriate to their authenticated identity or guest session.
+- Sharing the app link must never grant owner or administrator privileges.
+- Do not use URL parameters, query strings, browser storage, client-side flags, or frontend conditions as the source of administrative authorization.
+- Do not grant administrator privileges based on a shared link, deployment URL, Google Cloud URL, or possession of a particular route.
+- Opening an administrator dashboard URL must not grant access to the dashboard.
+- Protect administrator pages and APIs using server-side authorization checks.
+- Verify the authenticated user's role before allowing access to sensitive resources.
+- Return an appropriate unauthorized or forbidden response when a normal user or guest attempts to access restricted resources.
+- Do not expose owner-only information in publicly accessible application responses.
+
+The same security rules must apply regardless of how a person opens the application.
+
+==================================================
+5. SIGNUP, SIGN-IN, AND GUEST LOGIN FLOW
+==================================================
+
+Implement the following authentication interface and state transitions exactly.
+
+A. Initial authentication screen:
+When a new visitor opens the authentication interface, display these two primary options:
+
+1. Sign Up
+2. Sign In as Guest
+
+Do not clutter the initial screen with unnecessary authentication options.
+
+B. After successful signup:
+Once the user has successfully created an account, update the available authentication options to:
+
+1. Sign In
+2. Guest Login
+
+Do not continue showing the initial signup screen as though the user has never registered.
+
+C. Returning registered users:
+- Allow registered users to sign in with their existing authentication method.
+- Support Google authentication if configured.
+- Support the existing email authentication method if configured.
+- Restore their saved preferred name and authorized role after successful authentication.
+- Do not create duplicate accounts when the same verified identity signs in again.
+
+D. Guest login:
+- Allow visitors to enter the application without creating a permanent account.
+- Create a properly managed guest session.
+- Clearly distinguish guest sessions from registered-user sessions.
+- Never assign administrator or owner privileges to guests.
+- Give guests only the permissions intended for guest users.
+- Where guest data is temporary, clearly handle its expiration and persistence rules.
+- If guest users can upgrade to registered accounts, preserve eligible guest data only after the required identity verification and account-linking checks.
+
+E. Authentication state transitions:
+- Correctly distinguish new visitors, registered users, authenticated users, returning users, guests, administrators, and the owner.
+- Prevent redirect loops, repeated signup prompts, incorrect account creation, and unexpected loss of sessions.
+- Ensure the correct screen appears after signup, sign-in, guest login, logout, and session expiration.
+
+==================================================
+6. MULTIPLE-DEVICE LOGIN SUPPORT
+==================================================
+
+Allow the owner, administrators, and normal users to use the application on multiple devices simultaneously.
+
+Requirements:
+- Support simultaneous sessions on devices such as laptops, desktop computers, tablets, and mobile phones.
+- Do not automatically log out an existing session merely because the same user signs in on another device, unless a documented security policy requires it.
+- Ensure the same account's preferred name, account identity, and permissions remain consistent across devices.
+- Keep authentication sessions independent and secure.
+- Track each session separately.
+- Allow expired or revoked sessions to be invalidated appropriately.
+- Ensure logging out on one device follows the application's documented logout policy.
+- Provide a secure way to terminate individual sessions or revoke sessions where appropriate.
+- Never share authentication tokens or session credentials between different users.
+- Do not rely solely on local storage to identify a user or determine their role.
+- Protect against session fixation, token leakage, and unauthorized session reuse.
+
+The owner and administrators must be able to access the application from multiple devices without accidentally changing their roles or losing their permissions.
+
+==================================================
+7. LIVE ADMIN LOGIN AND SESSION TRACKING
+==================================================
+
+Build a functional administrator dashboard for live authentication and session monitoring.
+
+The dashboard must display real authentication and session information, not hardcoded, mocked, or randomly generated data.
+
+A. Live session overview:
+Display:
+- Total registered users.
+- Total currently active authenticated users.
+- Total active guest sessions.
+- Total currently active administrators.
+- Total currently active owner sessions, visible only to appropriately authorized administrators.
+- Recent login events.
+- Active sessions across multiple devices.
+- Last activity time where available.
+- Successful and failed login events, subject to appropriate security and privacy controls.
+
+B. Per-user login information:
+For each authorized user record, display:
+- Display name.
+- Verified account email, where available and permitted.
+- Account type: Owner, Administrator, Normal User, or Guest.
+- Authentication method: Google, email, or guest.
+- Login timestamp.
+- Last activity timestamp.
+- Current session status: Online, Offline, or Session Expired, as appropriate.
+- Number of active sessions.
+- Device category, such as desktop, tablet, or mobile, when available.
+- Browser information when available and appropriate.
+- Session identifier or a safe, non-secret session reference for distinguishing sessions.
+
+Do not display passwords, access tokens, refresh tokens, or other sensitive authentication credentials.
+
+C. Live tracking:
+- Update session information automatically using a suitable mechanism, such as WebSockets, server-sent events, or controlled polling.
+- Show new login events without requiring the administrator to refresh the entire page.
+- Reflect logout events, expired sessions, and session revocations.
+- Detect activity using server-observed session events and an appropriate heartbeat or activity mechanism.
+- Distinguish between an active authenticated session and a user who is demonstrably active at that moment.
+- Handle disconnected devices, browser closures, network failures, and delayed heartbeat messages.
+- Use reasonable expiration windows so that a disconnected user is not incorrectly shown as permanently online.
+- Support simultaneous sessions for the same user.
+- Show separate entries for each device session where appropriate.
+
+D. Track every supported application entry route:
+The monitoring system must record authentication and session events whether the user accesses the application through:
+- The shared application link.
+- The deployed application's normal URL.
+- A Google Cloud-hosted application URL.
+- Another supported entry point that leads to the same authenticated application.
+
+Do not assume that opening the app through Google Cloud automatically means that the person is the owner or an administrator.
+
+If multiple URLs point to the same application, ensure that authentication and monitoring work consistently across those entry points.
+
+Important limitation:
+Opening a URL and successfully authenticating are different events. Record page visits separately from successful logins where technically supported. Do not label an unauthenticated visitor as an authenticated user.
+
+E. Admin dashboard security:
+- Only authorized administrators may access permitted user-monitoring information.
+- Only the owner or an appropriately authorized administrator may access privileged administrative functions.
+- Enforce these restrictions on the backend.
+- Do not expose the complete user list or login-event data to normal users or guests.
+- Audit access to sensitive monitoring information.
+
+==================================================
+8. IP ADDRESS PRIVACY AND LEGAL COMPLIANCE
+==================================================
+
+The live monitoring dashboard must not display IP addresses if collecting, processing, retaining, or displaying them would violate applicable law or the application's privacy obligations.
+
+Requirements:
+- Do not display IP addresses in the admin dashboard by default.
+- Do not collect or retain IP addresses solely for convenience.
+- Determine whether IP address processing is necessary, lawful, proportionate, and appropriately disclosed for the application's actual deployment and jurisdiction.
+- If IP addresses are not necessary, do not collect or retain them.
+- If processing IP addresses is legally permissible and genuinely necessary for a documented security purpose, apply appropriate safeguards, access restrictions, retention limits, and user disclosures.
+- Never expose IP addresses to unauthorized administrators or normal users.
+- Do not use IP addresses as the sole method of identifying a person or determining their account permissions.
+- Prefer less intrusive information, such as session identifiers, device categories, login timestamps, and authentication events, for routine monitoring.
+- Provide appropriate privacy disclosures and comply with applicable data-protection requirements.
+
+The requested live session tracking must remain useful without showing IP addresses.
+
+==================================================
+9. BACKEND, DATABASE, AND REAL-TIME IMPLEMENTATION
+==================================================
+
+Inspect the existing technology stack before choosing an implementation.
+
+If the application already has a backend, authentication provider, database, or session-management service, reuse and improve it where appropriate.
+
+If the application is frontend-only, determine what additional infrastructure is necessary for secure authentication, trusted role assignment, centralized session tracking, and live administrative monitoring.
+
+Implement the necessary components, which may include:
+- A secure authentication provider.
+- Server-side authorization.
+- A persistent user profile store.
+- A trusted role-management mechanism.
+- A session registry.
+- Login and logout event logging.
+- A real-time event-delivery mechanism.
+- Appropriate database access policies.
+- Protected administrative APIs.
+- Secure session expiration and revocation.
+- Configuration for the predefined owner email.
+
+Requirements:
+- Do not pretend that frontend-only local storage provides secure centralized authentication or live tracking across devices.
+- Do not expose server secrets or administrative credentials in frontend bundles.
+- Validate authentication and authorization on the server.
+- Validate all incoming requests.
+- Restrict database access using appropriate authentication and authorization rules.
+- Do not allow users to modify their own role through ordinary profile updates.
+- Use secure session identifiers and avoid storing authentication secrets in monitoring records.
+- Do not introduce a new paid service without identifying the dependency and its potential cost.
+- Preserve existing integrations unless a change is required to correct a security or functional problem.
+
+==================================================
+10. ERROR HANDLING, MIGRATION, AND TESTING
+==================================================
+
+Before completing the implementation, test all the following scenarios.
+
+TEST 1:
+A new visitor opens the application.
+Expected result: The initial authentication interface shows Sign Up and Sign In as Guest.
+
+TEST 2:
+A visitor signs up and enters the name "Rahul Sharma".
+Expected result: The saved display name is Rahul Sharma, and the application greets the user using that name.
+
+TEST 3:
+A returning registered user signs in.
+Expected result: The application displays Sign In and Guest Login as the available initial authentication options for the authentication interface, while restoring the returning user's saved account information after sign-in.
+
+TEST 4:
+A user signs in through Google using their own Google account.
+Expected result: The application authenticates that user without granting the owner's permissions.
+
+TEST 5:
+A user opens the application using the owner's shared application link.
+Expected result: The user receives only their own account's permissions or the permitted guest permissions.
+
+TEST 6:
+An unauthenticated user manually opens the admin dashboard URL.
+Expected result: Access is denied or the user is redirected to the appropriate authentication screen.
+
+TEST 7:
+A normal user attempts to change their role to Administrator through a modified frontend request.
+Expected result: The backend rejects the unauthorized role change.
+
+TEST 8:
+The owner opens the application on multiple devices.
+Expected result: Supported sessions coexist without unnecessary forced logout.
+
+TEST 9:
+A normal user signs in on a laptop and a mobile device.
+Expected result: Both sessions are tracked independently.
+
+TEST 10:
+A user logs out from one device.
+Expected result: Session status updates correctly according to the application's documented logout policy.
+
+TEST 11:
+A user provides the name "Mashyadav" or "Yadavmash" as their email username but explicitly enters "Madhav" during signup.
+Expected result: The application greets the user as Madhav, not Mash or Yadav.
+
+TEST 12:
+A user does not provide a signup name.
+Expected result: The application attempts to derive a reasonable first name from available profile information or the email username, without automatically displaying the entire email address.
+
+TEST 13:
+A guest opens the application.
+Expected result: A guest session is created with no owner or administrator permissions.
+
+TEST 14:
+A user signs in through the shared app link.
+Expected result: The authentication event and session are recorded when the required instrumentation is available.
+
+TEST 15:
+A user accesses the application through its Google Cloud deployment URL.
+Expected result: Authentication, authorization, and session tracking work consistently with the other supported entry points.
+
+TEST 16:
+A user logs in while the administrator dashboard is open.
+Expected result: The new login event appears automatically without a full-page refresh.
+
+TEST 17:
+A session expires or its device disconnects.
+Expected result: The dashboard updates the session status using the configured expiration and heartbeat rules.
+
+TEST 18:
+An unauthorized user attempts to access login-tracking records.
+Expected result: Access is denied by the backend.
+
+TEST 19:
+IP address collection or display is not legally permissible or is unnecessary.
+Expected result: No IP address is displayed or unnecessarily retained.
+
+TEST 20:
+An administrator attempts to grant themselves owner privileges.
+Expected result: The backend rejects the unauthorized privilege escalation.
+
+TEST 21:
+The application is refreshed or reopened after successful authentication.
+Expected result: A valid session is restored securely without unnecessary repeated login prompts.
+
+TEST 22:
+Two users open the application simultaneously.
+Expected result: Each user receives their own identity, display name, permissions, and session information without data leakage.
+
+==================================================
+11. FINAL IMPLEMENTATION REQUIREMENTS
+==================================================
+
+Complete the following before declaring the task finished:
+
+- Audit the existing application and identify the root causes of the authentication and authorization problems.
+- Implement all required frontend and backend changes.
+- Preserve the existing UI design and unrelated application features.
+- Make the signup, sign-in, Google login, and guest login flows consistent.
+- Implement the preferred-name and email-derived first-name rules.
+- Configure the predefined owner identity and separate administrator authorization mechanism.
+- Enforce role-based permissions on all protected resources.
+- Enable secure multi-device sessions.
+- Implement real login-event and session monitoring.
+- Ensure live tracking works across supported application URLs and deployment entry points.
+- Keep IP addresses out of the dashboard unless their processing is lawful, necessary, and appropriately safeguarded.
+- Test the application against all relevant scenarios above.
+- Fix any regressions introduced by the changes.
+- Document any infrastructure, authentication-provider configuration, environment variables, database migrations, or deployment steps required.
+
+Do not claim that a feature works unless it has actually been implemented and tested.
+
+If an existing architecture prevents a requirement from being implemented securely, explain the limitation and implement the safest compatible solution rather than creating a fake or frontend-only implementation.
+
+FINAL GOAL:
+
+Deliver a secure, fully functional authentication and user-management system in which:
+- Users are greeted by the name they explicitly provided during signup.
+- If no name was provided, a reasonable first name is inferred from available identity information.
+- Users always authenticate as themselves.
+- The owner and administrators retain their intended permissions without granting those permissions to ordinary users.
+- Sharing the application link never grants privileged access.
+- New visitors see Sign Up and Sign In as Guest.
+- After successful signup, the authentication interface offers Sign In and Guest Login.
+- Users and administrators can maintain sessions on multiple devices.
+- The administrator dashboard provides real-time visibility into login events and active sessions across supported application entry points.
+- IP addresses are not displayed when doing so would violate applicable law or privacy obligations.
+- All security-sensitive decisions are enforced by trusted backend logic.

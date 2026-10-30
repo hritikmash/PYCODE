@@ -23,7 +23,7 @@ interface GeminiWelcomeProps {
 
 export const GeminiWelcome: React.FC<GeminiWelcomeProps> = ({ 
   onSelectSample, 
-  userName = 'Hritik',
+  userName = 'Developer',
   onSelectCategory 
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');

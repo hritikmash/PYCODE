@@ -150,7 +150,7 @@ export const GeminiSidebar: React.FC<GeminiSidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const { user, isAuthenticated, logout, openAuthModal } = useAuth();
+  const { user, isAuthenticated, logout, openAuthModal, openFeedbackModal } = useAuth();
   const sidebarDisplayName = resolveUserGreetingName(user);
 
   if (!isOpen) return null;
@@ -476,6 +476,21 @@ export const GeminiSidebar: React.FC<GeminiSidebarProps> = ({
                     <span>Replay Intro</span>
                   </span>
                   <span className="text-[10px] text-[#8e918f] group-hover:text-white">▶</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    openFeedbackModal();
+                    if (window.innerWidth < 640) onToggle();
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#1e1f20] hover:bg-[#282a2c] border border-[#282a2c] text-[#c4c7c5] hover:text-white text-xs transition-all cursor-pointer mt-1.5"
+                >
+                  <span className="flex items-center gap-2">
+                    <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Site Feedback & Upgrades</span>
+                  </span>
+                  <span className="text-[10px] text-[#8e918f]">★</span>
                 </button>
               </div>
             )}

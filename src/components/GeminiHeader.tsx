@@ -9,7 +9,9 @@ import {
   Settings,
   Sliders,
   ExternalLink,
-  Users
+  MessageSquare,
+  ShieldAlert,
+  Crown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { GeminiSparkle } from './GeminiIcons';
@@ -41,11 +43,10 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
   onSelectEngine,
   onOpenEngineModal
 }) => {
-  const { isOwner, openViewerLogsModal, viewerLoginsCount } = useAuth();
+  const { isOwner, isAdmin, openAdminModal, openFeedbackModal } = useAuth();
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const initial = userEmail ? userEmail[0].toUpperCase() : 'U';
   const engine = AI_ENGINES.find(e => e.id === selectedEngine) || AI_ENGINES[0];
 
   useEffect(() => {
@@ -59,88 +60,87 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-[#131314]/90 backdrop-blur-md border-b border-[#282a2c] text-white flex items-center justify-between px-3 sm:px-6 select-none">
-      {/* Left Zone: Sidebar Hamburger + Gemini Wordmark & Model Selector Dropdown */}
+    <header className="h-14 border-b border-[#282a2c] px-3 sm:px-4 flex items-center justify-between bg-[#131314]/90 backdrop-blur-md z-30 shrink-0 select-none">
+      {/* Left Zone: Hamburger + Engine Dropdown */}
       <div className="flex items-center gap-2 sm:gap-3">
         <button
           type="button"
           onClick={onToggleSidebar}
           className="p-2 rounded-full hover:bg-[#282a2c] text-[#c4c7c5] hover:text-white transition-colors cursor-pointer"
-          title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Gemini Logo + Model Selector Dropdown */}
+        {/* AI Engine Model Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
             type="button"
             onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-            className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl hover:bg-[#1e1f20] transition-colors cursor-pointer group"
+            className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full hover:bg-[#282a2c] border border-transparent hover:border-[#3b3d40] transition-all cursor-pointer group"
           >
-            <GeminiSparkle className="w-5 h-5 shrink-0" />
-            <span className="font-semibold text-lg tracking-tight text-white group-hover:text-[#a8c7fa] transition-colors">
-              Gemini
+            <span className="font-semibold text-sm sm:text-base text-white tracking-tight flex items-center gap-1.5">
+              <span>{engine.name}</span>
             </span>
-            <span className="text-xs text-[#8e918f] font-normal hidden sm:inline">
-              {engine.name}
+            <span className="text-[10px] sm:text-xs font-mono text-[#a8c7fa] bg-[#1e1f20] px-1.5 py-0.5 rounded-md border border-[#3b3d40]">
+              {engine.badge}
             </span>
             <ChevronDown className="w-3.5 h-3.5 text-[#8e918f] group-hover:text-white transition-transform" />
           </button>
 
-          {/* Model Switcher Popover */}
           {isModelDropdownOpen && (
-            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-2xl bg-[#1e1f20] border border-[#282a2c] shadow-2xl p-1.5 z-50 space-y-1 text-xs animate-in fade-in zoom-in-95 duration-150">
-              <div className="px-3 py-1.5 flex items-center justify-between border-b border-[#282a2c]/60">
-                <span className="text-[10px] font-semibold text-[#8e918f] uppercase tracking-wider">
-                  Select AI Model
-                </span>
-                <span className="text-[10px] text-emerald-400 font-mono">0.5s - 1.1s</span>
+            <div className="absolute left-0 top-full mt-2 w-72 rounded-2xl bg-[#1e1f20] border border-[#282a2c] shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-3 py-1.5 text-[10px] uppercase font-semibold text-[#8e918f] tracking-wider border-b border-[#282a2c] mb-1">
+                Select Active AI Engine
               </div>
-
-              <div className="max-h-72 overflow-y-auto space-y-0.5 [scrollbar-width:thin]">
-                {AI_ENGINES.map((eng) => {
-                  const isSelected = eng.id === selectedEngine;
+              <div className="space-y-1">
+                {AI_ENGINES.map((item) => {
+                  const isSelected = item.id === selectedEngine;
                   return (
                     <button
-                      key={eng.id}
+                      key={item.id}
                       type="button"
                       onClick={() => {
-                        onSelectEngine?.(eng.id);
+                        onSelectEngine?.(item.id);
                         setIsModelDropdownOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer text-left ${
-                        isSelected 
-                          ? 'bg-[#004a77] text-white font-medium' 
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#004a77] text-white font-medium'
                           : 'hover:bg-[#282a2c] text-[#c4c7c5] hover:text-white'
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="shrink-0">
-                          {renderEngineIcon(eng.iconType, 'w-4 h-4')}
+                        <div className="w-6 h-6 rounded-lg bg-[#282a2c] flex items-center justify-center shrink-0">
+                          {renderEngineIcon(item.id, 'w-3.5 h-3.5')}
                         </div>
                         <div className="min-w-0">
-                          <div className="truncate font-medium">{eng.name}</div>
-                          <div className="text-[10px] text-[#8e918f] line-clamp-1">{eng.provider}</div>
+                          <div className="font-semibold text-xs truncate flex items-center gap-1.5">
+                            <span>{item.name}</span>
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-black/30 font-mono text-[#a8c7fa]">
+                              {item.badge}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-[#8e918f] truncate">{item.tagline}</div>
                         </div>
                       </div>
-                      {isSelected && <Check className="w-4 h-4 text-white shrink-0 ml-1" />}
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0 ml-2" />}
                     </button>
                   );
                 })}
               </div>
 
-              <div className="pt-1 border-t border-[#282a2c]/60">
+              <div className="pt-1.5 mt-1 border-t border-[#282a2c]">
                 <button
                   type="button"
                   onClick={() => {
                     setIsModelDropdownOpen(false);
                     onOpenEngineModal?.();
                   }}
-                  className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-[#a8c7fa] hover:text-white transition-colors"
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl bg-[#282a2c] hover:bg-[#37393b] text-[#a8c7fa] text-xs font-medium transition-colors"
                 >
-                  <Settings className="w-3 h-3" />
-                  <span>Configure API Keys & Engines</span>
+                  <Sliders className="w-3 h-3" />
+                  <span>Configure Engines & Fallbacks</span>
                 </button>
               </div>
             </div>
@@ -148,8 +148,8 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
         </div>
       </div>
 
-      {/* Center Zone: Mode Tabs (Segmented Pill) */}
-      <div className="flex items-center bg-[#1e1f20] p-0.5 sm:p-1 rounded-full border border-[#282a2c]">
+      {/* Middle Zone: Output Mode Switcher Pill */}
+      <div className="flex items-center bg-[#1e1f20] border border-[#282a2c] p-0.5 sm:p-1 rounded-full shadow-inner">
         <button
           type="button"
           onClick={() => onModeChange('both')}
@@ -158,9 +158,9 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
               ? 'bg-[#004a77] text-white font-semibold shadow-xs'
               : 'text-[#c4c7c5] hover:text-white'
           }`}
-          title="Split View: Theory on left, Code on right"
+          title="Explain + Code + Execution"
         >
-          Theory + Code
+          Comprehensive
         </button>
         <button
           type="button"
@@ -170,9 +170,9 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
               ? 'bg-[#004a77] text-white font-semibold shadow-xs'
               : 'text-[#c4c7c5] hover:text-white'
           }`}
-          title="Full screen code editor and explanations"
+          title="Fast bug fix & code diff"
         >
-          Code Only
+          Fix Only
         </button>
         <button
           type="button"
@@ -188,18 +188,39 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
         </button>
       </div>
 
-      {/* Right Zone: Gemini Advanced Sparkle Pill + Clear + User Avatar */}
-      <div className="flex items-center gap-2 sm:gap-3">
-        {/* Gemini Advanced Pill */}
+      {/* Right Zone: Feedback + Admin + Clear + User Profile */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5">
+        {/* Site Performance & Upgrade Feedback Button */}
         <button
           type="button"
-          onClick={onOpenEngineModal}
-          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-[#1e1f20] to-[#282a2c] hover:from-[#282a2c] hover:to-[#37393b] border border-[#4285f4]/40 text-xs font-medium text-[#a8c7fa] hover:text-white transition-all shadow-xs cursor-pointer group"
-          title="Gemini Advanced Engine Settings"
+          onClick={openFeedbackModal}
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-[#1e1f20] hover:bg-[#282a2c] border border-[#3b3d40] text-xs font-medium text-[#c4c7c5] hover:text-white transition-all shadow-xs cursor-pointer group"
+          title="Submit feedback on site performance, upgrade fields, or suggestions"
         >
-          <Sparkles className="w-3.5 h-3.5 text-amber-400 group-hover:rotate-12 transition-transform" />
-          <span>Gemini Advanced</span>
+          <MessageSquare className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+          <span className="hidden sm:inline">Feedback</span>
         </button>
+
+        {/* Admin & Multi-Device Control Center (Backend-Enforced Role) */}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={openAdminModal}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full border text-xs font-medium transition-all shadow-xs cursor-pointer group ${
+              isOwner
+                ? 'bg-amber-950/40 hover:bg-amber-900/50 border-amber-600/50 text-amber-300'
+                : 'bg-indigo-950/40 hover:bg-indigo-900/50 border-indigo-600/50 text-indigo-300'
+            }`}
+            title={isOwner ? "Owner Console: Live Multi-Device Tracking & RBAC" : "Admin Console: Live Multi-Device Monitoring"}
+          >
+            {isOwner ? (
+              <Crown className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+            ) : (
+              <ShieldAlert className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform" />
+            )}
+            <span className="hidden sm:inline">{isOwner ? 'Owner Console' : 'Admin'}</span>
+          </button>
+        )}
 
         {/* Clear Chat Button */}
         <button
@@ -210,22 +231,6 @@ export const GeminiHeader: React.FC<GeminiHeaderProps> = ({
         >
           <RefreshCw className="w-4 h-4" />
         </button>
-
-        {/* Owner Secret View: Viewers who logged in apart from owner */}
-        {isOwner && (
-          <button
-            type="button"
-            onClick={openViewerLogsModal}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-amber-950/40 hover:bg-amber-900/50 border border-amber-600/50 text-amber-300 text-xs font-medium transition-all shadow-xs cursor-pointer group"
-            title="Owner Secret View: See who logged in to Pycode apart from you"
-          >
-            <Users className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-            <span className="hidden sm:inline">Viewers</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-500 text-black font-bold">
-              {viewerLoginsCount}
-            </span>
-          </button>
-        )}
 
         {/* User Account Login/Logout & Profile Dropdown */}
         <UserProfileDropdown />
