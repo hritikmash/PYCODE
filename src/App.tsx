@@ -17,7 +17,10 @@ import { AuthPage } from './components/AuthPage';
 import { AdminDashboardModal } from './components/AdminDashboardModal';
 import { FeedbackModal } from './components/FeedbackModal';
 import { GoogleLoginWindow } from './components/GoogleLoginWindow';
+import { SettingsModal } from './components/SettingsModal';
+import { TwoFactorModal } from './components/TwoFactorModal';
 import { useAuth } from './context/AuthContext';
+import { useWebSocket } from './context/WebSocketContext';
 import { resolveUserGreetingName } from './utils/userName';
 import { AIEngineBadge } from './components/AIEngineBadge';
 import { GeminiResponseActions } from './components/GeminiResponseActions';
@@ -142,9 +145,38 @@ function renderDocumentBadge(doc: AttachedDocument) {
 
 export default function App() {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const { lastMessage } = useWebSocket();
 
-  // Cinematic Intro state (plays once per page load)
-  const [showIntro, setShowIntro] = useState<boolean>(true);
+  // App configuration synchronized live across all users
+  const [appConfig, setAppConfig] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/app/config')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.config) {
+          setAppConfig(data.config);
+          if (data.config.appTitle) {
+            document.title = `${data.config.appTitle} - Python Theory & Code`;
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (lastMessage?.type === 'admin:event' && lastMessage.event === 'app:config_updated') {
+      if (lastMessage.payload?.config) {
+        setAppConfig(lastMessage.payload.config);
+        if (lastMessage.payload.config.appTitle) {
+          document.title = `${lastMessage.payload.config.appTitle} - Python Theory & Code`;
+        }
+      }
+    }
+  }, [lastMessage]);
+
+  // Cinematic Intro state (only plays if user explicitly triggers replay)
+  const [showIntro, setShowIntro] = useState<boolean>(false);
 
   // Navigation & Layout - NEVER open sidebar automatically on start/restart
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
@@ -547,6 +579,17 @@ ${analysisResult.expectedOutput}`;
       {/* Separate Google Account Login Window */}
       <GoogleLoginWindow />
 
+      {/* Settings Modal (User preferences and exclusive Owner controls) */}
+      <SettingsModal
+        selectedEngine={selectedEngine}
+        onSelectEngine={setSelectedEngine}
+        preferredSearchEngine={preferredSearchEngine}
+        onSelectSearchEngine={setPreferredSearchEngine}
+      />
+
+      {/* Two-Factor Authentication Modal */}
+      <TwoFactorModal />
+
       {/* Left Sidebar with Multiple Chats and Date Groups */}
       <GeminiSidebar
         isOpen={sidebarOpen}
@@ -582,6 +625,27 @@ ${analysisResult.expectedOutput}`;
           onScroll={handleChatScroll}
           className="flex-1 overflow-y-auto px-2.5 sm:px-6 py-3 sm:py-6 space-y-6 pb-28 sm:pb-32 w-full max-w-full"
         >
+          {/* Live Global Announcement Banner from App Configuration */}
+          {appConfig?.announcementBanner?.enabled && appConfig.announcementBanner.message && (
+            <div className="max-w-4xl mx-auto w-full animate-in fade-in duration-150">
+              <div className={`p-3.5 rounded-2xl border text-xs flex items-center justify-between gap-3 shadow-md ${
+                appConfig.announcementBanner.type === 'warning'
+                  ? 'bg-amber-950/40 border-amber-800/60 text-amber-200'
+                  : appConfig.announcementBanner.type === 'success'
+                  ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-200'
+                  : 'bg-sky-950/40 border-sky-800/60 text-sky-200'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 shrink-0 text-[#20b8cd]" />
+                  <span className="font-medium">{appConfig.announcementBanner.message}</span>
+                </div>
+                <span className="text-[10px] font-mono opacity-60 uppercase shrink-0 font-semibold px-2 py-0.5 rounded-md bg-white/10">
+                  Update
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Quick Python Subprocess Output Banner if present */}
           {quickPyOutput && (
             <div className={`max-w-4xl mx-auto p-3.5 rounded-2xl border text-xs font-mono transition-all ${
@@ -637,49 +701,47 @@ ${analysisResult.expectedOutput}`;
 
           {/* Active Conversation Messages Stream (Multiple Chats Support) */}
           {activeSession && activeSession.messages.length > 0 && (
-            <div className="w-full max-w-6xl mx-auto space-y-6 sm:space-y-8 pb-32">
+            <div className="w-full max-w-5xl mx-auto space-y-8 sm:space-y-10 pb-32">
               {activeSession.messages.map((msg, index) => {
                 if (msg.sender === 'user') {
                   return (
-                    <div key={msg.id || index} id={`user-msg-${msg.id || index}`} className="flex justify-end animate-in fade-in duration-200 w-full">
-                      <div className="w-full sm:max-w-3xl sm:w-auto sm:max-w-[85%] rounded-2xl sm:rounded-3xl bg-[#282a2c]/80 hover:bg-[#282a2c] border border-[#37393b]/70 p-3.5 sm:p-5 text-[#f0f4f9] shadow-sm space-y-3">
-                        <div className="flex items-center justify-between text-xs pb-2 border-b border-[#37393b]/50">
+                    <div key={msg.id || index} id={`user-msg-${msg.id || index}`} className="w-full pt-4 pb-4 border-b border-[#222426] animate-in fade-in duration-200">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-xs text-[#8e918f]">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center font-bold text-[10px] shadow-xs">
+                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-sky-500 via-indigo-500 to-emerald-500 text-white flex items-center justify-center font-bold text-[10px] shadow-xs">
                               {user?.avatar || (greetingName ? greetingName[0].toUpperCase() : 'U')}
                             </div>
-                            <span className="font-medium text-[#c4c7c5] text-xs">{greetingName}</span>
+                            <span className="font-medium text-[#c4c7c5]">{greetingName}</span>
                           </div>
-                          <span className="text-[11px] font-mono text-[#8e918f]">{msg.timestamp}</span>
+                          <span className="text-[11px] font-mono text-[#66686b]">{msg.timestamp}</span>
                         </div>
 
-                        {/* Attached Documents - Shown as separate reference attachments */}
+                        {/* Query Title / Question in clean Gemini style */}
+                        {msg.question && (
+                          <div className="text-base sm:text-lg font-medium text-[#f3f3f2] leading-relaxed">
+                            {msg.question}
+                          </div>
+                        )}
+
+                        {/* Attached Documents */}
                         {msg.attachments && msg.attachments.length > 0 && (
-                          <div className="space-y-1 pt-0.5">
-                            <div className="text-[11px] font-semibold text-[#8e918f] uppercase tracking-wider flex items-center gap-1">
-                              <Paperclip className="w-3 h-3 text-[#00ff88]" />
-                              <span>Attached Documents:</span>
-                            </div>
+                          <div className="space-y-1.5 pt-1">
                             <div className="flex flex-wrap gap-2">
                               {msg.attachments.map(renderDocumentBadge)}
                             </div>
                           </div>
                         )}
 
-                        {/* Natural Language Question */}
-                        {msg.question && (
-                          <div className="text-sm sm:text-base text-white font-medium whitespace-pre-wrap leading-relaxed">
-                            {msg.question}
-                          </div>
-                        )}
-
                         {/* Submitted Python Code with Inline Error Highlighting */}
                         {msg.code && (
-                          <SubmittedCodeErrorHighlighter
-                            originalCode={msg.code}
-                            errors={msg.analysisResult?.errors || []}
-                            title="Submitted Python Code"
-                          />
+                          <div className="pt-2">
+                            <SubmittedCodeErrorHighlighter
+                              originalCode={msg.code}
+                              errors={msg.analysisResult?.errors || []}
+                              title="Submitted Python Code"
+                            />
+                          </div>
                         )}
                       </div>
                     </div>
@@ -720,6 +782,7 @@ ${analysisResult.expectedOutput}`;
                       <GeminiSolutionView
                         result={result}
                         engine={msg.engine || 'gemini'}
+                        mode={msg.mode || activeMode}
                         userCode={msg.code}
                         onSendMessage={handleSendMessage}
                         onRunPythonSubprocess={handleRunPythonSubprocess}
@@ -766,7 +829,7 @@ ${analysisResult.expectedOutput}`;
             <button
               type="button"
               onClick={scrollToChatBottom}
-              className="absolute -top-11 right-4 sm:right-1/4 z-40 px-3 py-1.5 rounded-full bg-[#1e1f20] hover:bg-[#282a2c] text-[#a8c7fa] hover:text-white border border-[#37393b] shadow-xl transition-all cursor-pointer flex items-center gap-1.5 text-xs animate-in fade-in slide-in-from-bottom-2 active:scale-95"
+              className="absolute -top-11 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-full bg-[#1e1f20] hover:bg-[#282a2c] text-[#a8c7fa] hover:text-white border border-[#37393b] shadow-xl transition-all cursor-pointer flex items-center gap-1.5 text-xs animate-in fade-in slide-in-from-bottom-2 active:scale-95"
               title="Scroll down to latest messages"
             >
               <ChevronDown className="w-3.5 h-3.5 animate-bounce text-[#00ff88]" />

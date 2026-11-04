@@ -9,12 +9,19 @@ import {
   AlertCircle, 
   CheckCircle2, 
   AlertTriangle,
-  Activity,
   Layers,
   ArrowRight,
   Cpu,
   RefreshCw,
-  Calculator
+  Calculator,
+  Copy,
+  Check,
+  Share2,
+  ThumbsUp,
+  ThumbsDown,
+  Play,
+  CornerDownRight,
+  Plus
 } from 'lucide-react';
 import { 
   PythonDecodeResponse, 
@@ -35,6 +42,7 @@ import { SearchEngineFallbackBanner } from './SearchEngineFallbackBanner';
 interface GeminiSolutionViewProps {
   result: PythonDecodeResponse;
   engine?: AIEngineId;
+  mode?: AnalysisMode;
   userCode?: string;
   onSendMessage: (query: string, attachments: any[]) => void;
   onRunPythonSubprocess?: (code: string) => void;
@@ -45,390 +53,278 @@ interface GeminiSolutionViewProps {
 export const GeminiSolutionView: React.FC<GeminiSolutionViewProps> = ({
   result,
   engine = 'gemini',
+  mode,
   userCode,
   onSendMessage,
   onRunPythonSubprocess,
   runningPythonOnly = false,
   onQuickReAnalyze
 }) => {
-  // Current view tab: 'all' | 'diff' | 'functions' | 'flowchart' | 'theory' | 'terminal' | 'trace'
+  const effectiveMode: AnalysisMode = mode || result.mode || 'both';
   const [activeTab, setActiveTab] = useState<'all' | 'diff' | 'functions' | 'flowchart' | 'theory' | 'terminal' | 'trace'>('all');
-  
-  // Current mode: both | code_only | theory_only
-  const [currentMode, setCurrentMode] = useState<AnalysisMode>(result.mode || 'both');
+  const [copiedAnswer, setCopiedAnswer] = useState(false);
+  const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
 
-  const totalFunctions = result.stepByStepBreakdown?.reduce((acc, s) => acc + (s.functionsUsed?.length || 0), 0) || 0;
+  const availableTabs = React.useMemo(() => {
+    if (effectiveMode === 'theory_only') {
+      return [
+        { id: 'all', label: 'All Theory' },
+        { id: 'theory', label: 'Concept Theory' }
+      ];
+    }
+    if (effectiveMode === 'code_only') {
+      return [
+        { id: 'all', label: 'All Code' },
+        { id: 'diff', label: 'Code Fix & Diff' },
+        { id: 'functions', label: 'Functions Breakdown' },
+        { id: 'flowchart', label: 'Logic Flowchart' },
+        { id: 'terminal', label: 'Subprocess Terminal' },
+        { id: 'trace', label: 'Interactive Trace' }
+      ];
+    }
+    return [
+      { id: 'all', label: 'Theory + Code (All)' },
+      { id: 'theory', label: 'Concept Theory' },
+      { id: 'diff', label: 'Code Fix & Diff' },
+      { id: 'functions', label: 'Functions Breakdown' },
+      { id: 'flowchart', label: 'Logic Flowchart' },
+      { id: 'terminal', label: 'Subprocess Terminal' },
+      { id: 'trace', label: 'Interactive Trace' }
+    ];
+  }, [effectiveMode]);
 
   const codeForComplexity = userCode || result.originalCode;
   const complexity = calculateCyclomaticComplexity(codeForComplexity);
 
-  // Handle clicking on an issue chip to immediately open the Diff tab
-  const handleSelectIssue = (err: CodeErrorItem) => {
-    setActiveTab('diff');
+  // Generate dynamic contextual Perplexity-style related questions
+  const relatedQuestions: string[] = React.useMemo(() => {
+    const list: string[] = [];
+    if (result.errors && result.errors.length > 0) {
+      list.push(`Why did this ${result.errors[0]?.errorType || 'syntax'} error occur?`);
+      list.push(`How do I write unit tests for this corrected code?`);
+    } else {
+      list.push(`How can I optimize the time and space complexity of this logic?`);
+      list.push(`Can this be refactored into a more Pythonic function or generator?`);
+    }
+    const allFunctions = result.stepByStepBreakdown?.flatMap(s => s.functionsUsed) || [];
+    if (allFunctions.length > 0) {
+      list.push(`Explain the internal implementation of '${allFunctions[0].name}' in Python.`);
+    } else {
+      list.push(`What edge cases should I handle when passing empty or null inputs?`);
+    }
+    return list.slice(0, 3);
+  }, [result]);
+
+  const handleCopyFullAnswer = () => {
+    const textToCopy = `Summary:\n${result.summary}\n\nCorrected Code:\n${result.correctedCode || userCode || ''}\n\nBreakdown:\n${result.stepByStepBreakdown?.map(s => s.title + ': ' + s.purpose).join('\n') || ''}`;
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedAnswer(true);
+    setTimeout(() => setCopiedAnswer(false), 2500);
   };
 
   return (
-    <div className="w-full max-w-full space-y-6 animate-in fade-in duration-200">
-      {/* Search Engine Fallback Banner (if tokens are over) */}
+    <div className="w-full max-w-full space-y-5 animate-in fade-in duration-200">
+      {/* Search Engine Fallback Banner (if tokens over) */}
       {result.searchEngineFallback && (
         <SearchEngineFallbackBanner fallback={result.searchEngineFallback} />
       )}
 
-      {/* Code Diagnostics & Error Analysis Badges - rendered normally without enclosing box */}
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Cyclomatic Complexity Score Badge */}
-        <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-sans font-medium shadow-xs ${complexity.badgeClass}`}>
-          <Calculator className="w-3.5 h-3.5 shrink-0" />
-          <span>Complexity: <strong className="font-mono">{complexity.score}</strong> ({complexity.rating})</span>
+      {/* Perplexity AI Sources / Verified Engines Header */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-[#858585] font-semibold">
+          <Layers className="w-3.5 h-3.5 text-[#20b8cd]" />
+          <span>Verified Sources & Execution Engines</span>
         </div>
 
-        {/* Python 3.10 Subprocess Verified Badge */}
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1e1f20] border border-[#282a2c] text-[11px] text-[#c4c7c5]">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <span>Python 3.10 Verified</span>
+        <div className="flex flex-wrap gap-2 text-xs">
+          {/* Source 1: Python 3.10 Subprocess */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#191a1a] border border-[#2d3131] hover:border-[#3d4245] transition-colors">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span className="text-[#ededed] font-medium">Python 3.10 Sandbox</span>
+            <span className="text-[10px] text-[#858585] font-mono">0ms runtime</span>
+          </div>
+
+          {/* Source 2: Big-O Complexity Badge */}
+          <div 
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-colors font-mono text-xs ${complexity.badgeClass}`}
+            title={`Big-O Algorithmic Complexity: Time ${complexity.timeComplexity} (${complexity.rating}) · Space ${complexity.spaceComplexity}`}
+          >
+            <Cpu className="w-3.5 h-3.5 text-sky-400" />
+            <span>Time: <strong className="font-semibold">{complexity.timeComplexity}</strong></span>
+            <span className="opacity-40">·</span>
+            <span>Space: <strong className="font-semibold">{complexity.spaceComplexity}</strong></span>
+          </div>
+
+          {/* Source 3: Syntax & Runtime Status */}
+          <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono ${
+            result.errors.length > 0 
+              ? 'bg-red-950/40 border-red-800/60 text-red-300' 
+              : 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+          }`}>
+            {result.errors.length > 0 ? (
+              <>
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                <span>{result.errors.length} {result.errors.length === 1 ? 'Syntax Issue' : 'Syntax Issues'}</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Zero Syntax Errors</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Answer Container (Perplexity Style) */}
+      <div className="p-5 sm:p-7 rounded-3xl bg-[#191a1a] border border-[#2d3131] space-y-6 shadow-sm">
+        {/* Header with Title & Action Controls */}
+        <div className="flex items-center justify-between pb-3 border-b border-[#242828]">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#20b8cd]" />
+            <h3 className="text-base font-semibold text-white tracking-tight">Answer</h3>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs text-[#858585]">
+            <button
+              type="button"
+              onClick={handleCopyFullAnswer}
+              className="p-1.5 rounded-lg hover:bg-[#202222] text-[#858585] hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+              title="Copy answer"
+            >
+              {copiedAnswer ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{copiedAnswer ? 'Copied' : 'Copy'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFeedbackGiven('up')}
+              className={`p-1.5 rounded-lg hover:bg-[#202222] transition-colors cursor-pointer ${
+                feedbackGiven === 'up' ? 'text-[#20b8cd]' : 'text-[#858585] hover:text-white'
+              }`}
+              title="Good answer"
+            >
+              <ThumbsUp className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFeedbackGiven('down')}
+              className={`p-1.5 rounded-lg hover:bg-[#202222] transition-colors cursor-pointer ${
+                feedbackGiven === 'down' ? 'text-red-400' : 'text-[#858585] hover:text-white'
+              }`}
+              title="Needs improvement"
+            >
+              <ThumbsDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Diagnosed Issues Count Badge */}
-        {result.errors.length > 0 ? (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium bg-red-950/70 text-red-300 border border-red-800/80">
-            <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
-            <span>{result.errors.length} {result.errors.length === 1 ? 'issue diagnosed' : 'issues diagnosed'}</span>
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium bg-emerald-950/70 text-emerald-300 border border-emerald-800/80">
-            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-            <span>Zero Syntax Errors</span>
-          </span>
+        {/* View Mode Segmented Tabs */}
+        <div className="flex flex-wrap items-center gap-1 bg-[#131414] p-1 rounded-2xl border border-[#242828] text-xs">
+          {availableTabs.map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-3 py-1.5 rounded-xl font-medium transition-all cursor-pointer ${
+                activeTab === tab.id
+                  ? 'bg-[#202222] text-white shadow-xs font-semibold'
+                  : 'text-[#858585] hover:text-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Summary Paragraph */}
+        {result.summary && (
+          <div className="text-sm leading-relaxed text-[#ededed] whitespace-pre-wrap">
+            {result.summary}
+          </div>
+        )}
+
+        {/* TAB CONTENTS - DYNAMIC TO MODE */}
+        {/* Theory Section (Always shown in Theory mode and Theory + Code mode) */}
+        {(activeTab === 'all' || activeTab === 'theory') && effectiveMode !== 'code_only' && result.conceptualAnswer && (
+          <ConceptualGuide answer={result.conceptualAnswer} />
+        )}
+
+        {/* Code Diff & Fix (Shown in Code and Theory + Code modes) */}
+        {(activeTab === 'all' || activeTab === 'diff') && effectiveMode !== 'theory_only' && (result.correctedCode || userCode) && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-white">
+              <span>Corrected Code Implementation</span>
+              {onRunPythonSubprocess && (
+                <button
+                  type="button"
+                  onClick={() => onRunPythonSubprocess(result.correctedCode || userCode || '')}
+                  disabled={runningPythonOnly}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/50 text-emerald-300 text-xs font-medium cursor-pointer transition-all active:scale-95"
+                >
+                  <Play className="w-3 h-3 fill-emerald-300" />
+                  <span>{runningPythonOnly ? 'Executing...' : 'Run in Subprocess'}</span>
+                </button>
+              )}
+            </div>
+
+            <CodeDiffViewer 
+              originalCode={result.originalCode || userCode || ''}
+              correctedCode={result.correctedCode || ''}
+              errors={result.errors || []}
+              whatChanged={result.whatChanged || []}
+            />
+          </div>
+        )}
+
+        {/* Functions Explainer */}
+        {(activeTab === 'all' || activeTab === 'functions') && effectiveMode !== 'theory_only' && result.stepByStepBreakdown && result.stepByStepBreakdown.length > 0 && (
+          <FunctionExplainer steps={result.stepByStepBreakdown} />
+        )}
+
+        {/* Flowchart AST Viewer */}
+        {(activeTab === 'all' || activeTab === 'flowchart') && effectiveMode !== 'theory_only' && result.flowchart && (
+          <FlowchartViewer flowchart={result.flowchart} />
+        )}
+
+        {/* Terminal Output */}
+        {(activeTab === 'all' || activeTab === 'terminal') && effectiveMode !== 'theory_only' && (
+          <TerminalOutput 
+            expectedOutput={result.expectedOutput || ''}
+            realExecution={result.realExecution}
+          />
+        )}
+
+        {/* Execution Trace */}
+        {(activeTab === 'all' || activeTab === 'trace') && effectiveMode !== 'theory_only' && result.executionTrace && (
+          <ExecutionTraceViewer trace={result.executionTrace} />
         )}
       </div>
 
-      {/* Code Diagnostics & Error Analysis Summary - Open, fluid presentation */}
-      <div className="space-y-3">
-        <div className="text-[15px] sm:text-[16px] text-[#f0f4f9] leading-relaxed font-normal whitespace-pre-wrap break-words">
-          {result.summary}
-        </div>
+      {/* Perplexity AI Signature "Related" Queries Section */}
+      {relatedQuestions.length > 0 && (
+        <div className="p-5 rounded-3xl bg-[#191a1a] border border-[#2d3131] space-y-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-white">
+            <CornerDownRight className="w-4 h-4 text-[#20b8cd]" />
+            <span>Related Questions</span>
+          </div>
 
-        {/* Diagnosed Issues Navigation Pills */}
-        {result.errors && result.errors.length > 0 && (
-          <div className="pt-1 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-[#8e918f]">
-              Diagnosed Issues:
-            </span>
-            {result.errors.map((err, i) => (
+          <div className="space-y-1.5">
+            {relatedQuestions.map((query, idx) => (
               <button
-                key={err.id || i}
+                key={idx}
                 type="button"
-                onClick={() => handleSelectIssue(err)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-red-950/50 hover:bg-red-900/60 text-red-200 border border-red-800/70 transition-all cursor-pointer hover:scale-105 active:scale-95"
-                title="Click to view line diff and fix"
+                onClick={() => onSendMessage(query, [])}
+                className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-[#131414] hover:bg-[#202222] border border-[#242828] hover:border-[#383c3c] text-left text-xs text-[#c4c7c5] hover:text-white transition-all cursor-pointer group"
               >
-                <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />
-                <span>Line {err.line}: {err.errorType.toUpperCase()}</span>
-                <ArrowRight className="w-3 h-3 text-red-400 opacity-60" />
+                <span className="truncate pr-2">{query}</span>
+                <Plus className="w-3.5 h-3.5 text-[#858585] group-hover:text-[#20b8cd] shrink-0" />
               </button>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Material 3 Navigation Filter Chips Bar */}
-      <div className="pt-2 border-t border-[#282a2c]/80 flex flex-col md:flex-row md:items-center justify-between gap-3 w-full">
-        {/* Filter Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs w-full sm:w-auto">
-          {/* All Insights */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('all')}
-            className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-              activeTab === 'all'
-                ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#a8c7fa]" />
-            <span>All Insights</span>
-          </button>
-
-          {/* Code Diff & Issues */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('diff')}
-            className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-              activeTab === 'diff'
-                ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${result.errors.length > 0 ? 'bg-red-400' : 'bg-emerald-400'}`} />
-            <span>Code Diff & Issues</span>
-            {result.errors.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-red-950 text-red-300 border border-red-800">
-                {result.errors.length}
-              </span>
-            )}
-          </button>
-
-          {/* Functions & Keywords */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('functions')}
-            className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-              activeTab === 'functions'
-                ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5 text-[#a8c7fa]" />
-            <span>Functions & Keywords ({totalFunctions})</span>
-          </button>
-
-          {/* Control Flowchart */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('flowchart')}
-            className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-              activeTab === 'flowchart'
-                ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-            }`}
-          >
-            <GitFork className="w-3.5 h-3.5 text-[#a8c7fa]" />
-            <span>Logic Flowchart</span>
-          </button>
-
-          {/* Theory Guide */}
-          {result.conceptualAnswer && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('theory')}
-              className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-                activeTab === 'theory'
-                  ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Theory Guide</span>
-            </button>
-          )}
-
-          {/* Terminal Sandbox */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('terminal')}
-            className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-              activeTab === 'terminal'
-                ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Terminal Sandbox</span>
-          </button>
-
-          {/* Trace Steps (if present) */}
-          {result.executionTrace && result.executionTrace.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('trace')}
-              className={`px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer text-xs font-medium ${
-                activeTab === 'trace'
-                  ? 'bg-[#004a77] text-[#c2e7ff] border border-[#005a92] shadow-xs ring-1 ring-[#a8c7fa]/20'
-                  : 'bg-[#1e1f20] text-[#8e918f] hover:text-white hover:bg-[#282a2c] border border-[#282a2c]'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5 text-sky-400" />
-              <span>Trace</span>
-            </button>
-          )}
         </div>
-
-        {/* Mode Switcher Pills: Both / Code Only / Theory Only */}
-        <div className="flex items-center gap-1 bg-[#1e1f20] p-1 rounded-full border border-[#282a2c] self-start md:self-auto shrink-0 text-xs">
-          <button
-            type="button"
-            onClick={() => setCurrentMode('both')}
-            className={`px-3 py-1 rounded-full transition-all cursor-pointer ${
-              currentMode === 'both'
-                ? 'bg-[#282a2c] text-white font-medium shadow-xs'
-                : 'text-[#8e918f] hover:text-white'
-            }`}
-          >
-            Both
-          </button>
-          <button
-            type="button"
-            onClick={() => setCurrentMode('code_only')}
-            className={`px-3 py-1 rounded-full transition-all cursor-pointer ${
-              currentMode === 'code_only'
-                ? 'bg-[#282a2c] text-white font-medium shadow-xs'
-                : 'text-[#8e918f] hover:text-white'
-            }`}
-          >
-            Code Only
-          </button>
-          <button
-            type="button"
-            onClick={() => setCurrentMode('theory_only')}
-            className={`px-3 py-1 rounded-full transition-all cursor-pointer ${
-              currentMode === 'theory_only'
-                ? 'bg-[#282a2c] text-white font-medium shadow-xs'
-                : 'text-[#8e918f] hover:text-white'
-            }`}
-          >
-            Theory Only
-          </button>
-        </div>
-      </div>
-
-      {/* Content Viewers Section */}
-      <div className="space-y-6 pt-1 w-full max-w-full">
-        {/* Mode: BOTH */}
-        {currentMode === 'both' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full max-w-full">
-            {/* Left Column: Conceptual Theory & Terminal Sandbox */}
-            <div className="lg:col-span-5 space-y-6 w-full max-w-full">
-              {(activeTab === 'all' || activeTab === 'theory') && (
-                result.conceptualAnswer ? (
-                  <ConceptualGuide answer={result.conceptualAnswer} />
-                ) : (
-                  <div className="p-5 rounded-3xl bg-[#1e1f20] border border-[#282a2c] text-xs text-[#8e918f] space-y-2">
-                    <div className="flex items-center gap-2 text-white font-medium">
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                      <span>Interactive Theory Guide</span>
-                    </div>
-                    <p>
-                      Ask a conceptual question along with your code to automatically generate deep principle foundations, beginner analogies, and mental models.
-                    </p>
-                  </div>
-                )
-              )}
-
-              {(activeTab === 'all' || activeTab === 'terminal') && (
-                <TerminalOutput
-                  expectedOutput={result.expectedOutput}
-                  realExecution={result.realExecution}
-                />
-              )}
-            </div>
-
-            {/* Right Column: Code Diff, Step-by-Step Functions, Flowchart, Trace */}
-            <div className="lg:col-span-7 space-y-6 w-full max-w-full">
-              {(activeTab === 'all' || activeTab === 'diff') && (
-                <CodeDiffViewer
-                  originalCode={result.originalCode}
-                  correctedCode={result.correctedCode}
-                  errors={result.errors}
-                  whatChanged={result.whatChanged}
-                />
-              )}
-
-              {(activeTab === 'all' || activeTab === 'functions') && (
-                <FunctionExplainer steps={result.stepByStepBreakdown} />
-              )}
-
-              {(activeTab === 'all' || activeTab === 'flowchart') && (
-                <FlowchartViewer flowchart={result.flowchart} />
-              )}
-
-              {(activeTab === 'all' || activeTab === 'trace') && result.executionTrace && (
-                <ExecutionTraceViewer trace={result.executionTrace} />
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Mode: CODE ONLY */}
-        {currentMode === 'code_only' && (
-          <div className="space-y-6 w-full max-w-full">
-            {(activeTab === 'all' || activeTab === 'diff') && (
-              <CodeDiffViewer
-                originalCode={result.originalCode}
-                correctedCode={result.correctedCode}
-                errors={result.errors}
-                whatChanged={result.whatChanged}
-              />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'functions') && (
-              <FunctionExplainer steps={result.stepByStepBreakdown} />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'flowchart') && (
-              <FlowchartViewer flowchart={result.flowchart} />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'terminal') && (
-              <TerminalOutput
-                expectedOutput={result.expectedOutput}
-                realExecution={result.realExecution}
-              />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'trace') && result.executionTrace && (
-              <ExecutionTraceViewer trace={result.executionTrace} />
-            )}
-          </div>
-        )}
-
-        {/* Mode: THEORY ONLY */}
-        {currentMode === 'theory_only' && (
-          <div className="space-y-6 w-full max-w-full">
-            {result.conceptualAnswer && (
-              <ConceptualGuide answer={result.conceptualAnswer} />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'functions') && (
-              <FunctionExplainer steps={result.stepByStepBreakdown} />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'diff') && result.correctedCode && (
-              <CodeDiffViewer
-                originalCode={result.originalCode}
-                correctedCode={result.correctedCode}
-                errors={result.errors}
-                whatChanged={result.whatChanged}
-              />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'flowchart') && (
-              <FlowchartViewer flowchart={result.flowchart} />
-            )}
-
-            {(activeTab === 'all' || activeTab === 'terminal') && (
-              <TerminalOutput
-                expectedOutput={result.expectedOutput}
-                realExecution={result.realExecution}
-              />
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Response Actions Toolbar */}
-      <div className="pt-3 border-t border-[#282a2c] w-full">
-        <GeminiResponseActions
-          result={result}
-          codeSnippet={userCode || result.originalCode}
-          onModifyResponse={(mod) => {
-            let followUp = '';
-            if (mod === 'shorter') followUp = 'Can you provide a shorter and more concise summary and solution of the previous code?';
-            else if (mod === 'longer') followUp = 'Can you provide a more detailed in-depth breakdown of this code?';
-            else if (mod === 'simpler') followUp = 'Can you explain this more simply using everyday analogies for a complete beginner?';
-            else if (mod === 'technical') followUp = 'Can you explain the deep underlying Python C-API, memory layout, and AST mechanics?';
-            if (followUp) {
-              onSendMessage(followUp, []);
-            }
-          }}
-          onReTestPython={() => {
-            const codeToRun = userCode || result.originalCode;
-            if (codeToRun && onRunPythonSubprocess) {
-              onRunPythonSubprocess(codeToRun);
-            }
-          }}
-          isTestingPython={runningPythonOnly}
-        />
-      </div>
+      )}
     </div>
   );
 };

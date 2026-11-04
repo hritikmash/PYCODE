@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { GoogleLoginWindow } from './GoogleLoginWindow';
+import { TwoFactorModal } from './TwoFactorModal';
+import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
 
 const AVATAR_OPTIONS = ['🐍', '⚡', '🚀', '🧠', '💻', '🤖', '🔮', '✨'];
 
@@ -45,16 +47,21 @@ export const AuthPage: React.FC = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) {
-      setErrorMessage('Please enter both your email and password');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setErrorMessage(INVALID_EMAIL_ERROR);
+      return;
+    }
+    if (!password) {
+      setErrorMessage('Please enter your password');
       return;
     }
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const res = await login(email.trim(), password);
+    const res = await login(cleanEmail, password);
     setIsSubmitting(false);
-    if (!res.success) {
+    if (!res.success && !res.require2FA) {
       setErrorMessage(res.error || 'Invalid email or password');
     }
   };
@@ -65,8 +72,9 @@ export const AuthPage: React.FC = () => {
       setErrorMessage('Please enter your name');
       return;
     }
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMessage('Please enter a valid email address');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setErrorMessage(INVALID_EMAIL_ERROR);
       return;
     }
     if (password.length < 6) {
@@ -112,6 +120,8 @@ export const AuthPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+
 
   return (
     <div className="min-h-screen w-full bg-[#0e0f10] text-white flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
@@ -198,6 +208,7 @@ export const AuthPage: React.FC = () => {
               </button>
             </div>
           )}
+
 
           {/* Error Message */}
           {errorMessage && (
@@ -475,6 +486,9 @@ export const AuthPage: React.FC = () => {
 
       {/* Separate Google Account Login Window */}
       <GoogleLoginWindow />
+
+      {/* Two-Factor Authentication Modal */}
+      <TwoFactorModal />
     </div>
   );
 };

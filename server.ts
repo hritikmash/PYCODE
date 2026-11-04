@@ -1,8 +1,10 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { apiRouter } from './src/server/apiHandler.ts';
+import { setupWebSocketServer } from './src/server/websocketHandler.ts';
 
 dotenv.config();
 
@@ -114,6 +116,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Pycode server is running on http://0.0.0.0:${PORT}`);
+// Create HTTP server and mount WebSocket server
+const httpServer = http.createServer(app);
+setupWebSocketServer(httpServer);
+
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`Pycode server with WebSocket is running on http://0.0.0.0:${PORT}`);
 });

@@ -43,21 +43,11 @@
     "role": "owner",
     "skillLevel": "Intermediate",
     "createdAt": "2026-10-29T05:20:25.988Z",
-    "lastLoginAt": "2026-10-30T18:37:30.231Z",
+    "lastLoginAt": "2026-11-04T07:01:18.234Z",
     "salt": "03ff6d5d50f479c5b5bc1bd930b54b36",
-    "passwordHash": "abc0b8abaa91abe9fd9df7e944f3da6656a145d1482ae9908da5f7ef1894cdaef8d7f75a7ac463cae7d0a9b5f08354c96f5c3ca157c18b0639eb7c06c1b3adf4"
-  },
-  {
-    "id": "usr_guest_1793258861322_6042",
-    "email": "guest_6042_1793258861241@pycode.guest",
-    "name": "Aarav Python Coder",
-    "avatar": "👀",
-    "role": "viewer",
-    "skillLevel": "Beginner",
-    "createdAt": "2026-10-29T07:27:41.322Z",
-    "lastLoginAt": "2026-10-29T07:27:41.322Z",
-    "salt": "cebc47e116efcb539c8499051f5f2e84",
-    "passwordHash": "be2d6f68d6108654cd78a0ccca964021e62a4b8e68b3854d4e433ad39f50ab39c9745c1df71ec578ab18c6baf4b918327423aa7826ccca1242a5228f79204299"
+    "passwordHash": "abc0b8abaa91abe9fd9df7e944f3da6656a145d1482ae9908da5f7ef1894cdaef8d7f75a7ac463cae7d0a9b5f08354c96f5c3ca157c18b0639eb7c06c1b3adf4",
+    "twoFactorEnabled": false,
+    "backupCodes": []
   },
   {
     "id": "usr_1793258875800_95444249",
@@ -166,5 +156,17 @@
     "lastLoginAt": "2026-10-30T18:37:53.277Z",
     "salt": "175ae43ad3d0b55539ebe668ca5d101d",
     "passwordHash": "66073f47b163f263f0dc7c6b2ea391755638816821341ec48c44b141a0cf371e63fdbecf4ea10d663c5c40ab058898cef9ee50509b46750313f68add422867a9"
+  },
+  {
+    "id": "usr_mw1rq3jc_03e245",
+    "email": "lead_admin@pycode.dev",
+    "name": "Lead",
+    "avatar": "🛡️",
+    "role": "member",
+    "skillLevel": "Intermediate",
+    "createdAt": "2026-11-04T07:01:18.312Z",
+    "lastLoginAt": "2026-11-04T07:01:18.312Z",
+    "passwordHash": "ef66cd014544211c742c2342eb61cb114b570404a9eb6962d24047b12e7b8a67fa86350b91343366d7709e224e271f41d4bcbdcb811b63b7336ef979a685298d",
+    "salt": "9cc0225d7fab9bb2ef41592110b97e1a"
   }
 ]

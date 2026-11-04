@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, ArrowRight, Shield, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { isValidEmail } from '../utils/validation';
 
 interface GoogleLoginModalProps {
   isOpen: boolean;
@@ -22,14 +23,8 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({ isOpen, onCl
     e.preventDefault();
     const cleanEmail = googleEmail.trim().toLowerCase();
 
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      setErrorMessage('Please enter a valid Google email address (e.g. user@gmail.com)');
-      return;
-    }
-
-    // Strict Rule: Normal users can never log in with the owner's email!
-    if (cleanEmail === OWNER_EMAIL.toLowerCase()) {
-      setErrorMessage('This email is reserved for the platform owner. Please sign in with your own email account.');
+    if (!isValidEmail(cleanEmail)) {
+      setErrorMessage('INVALID EMAIL!');
       return;
     }
 

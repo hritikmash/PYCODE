@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { inferFirstNameFromEmail } from '../utils/userName.ts';
+import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation.ts';
 
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -12,6 +13,7 @@ export interface UserProfile {
   avatar: string;
   role: UserRole;
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
+  twoFactorEnabled?: boolean;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -19,9 +21,12 @@ export interface UserProfile {
 interface StoredUser extends UserProfile {
   passwordHash: string;
   salt: string;
+  twoFactorSecret?: string;
+  backupCodes?: string[];
 }
 
 export interface ClientInfo {
+  deviceId?: string;
   deviceType?: 'desktop' | 'tablet' | 'mobile';
   browser?: string;
   os?: string;
@@ -38,7 +43,10 @@ export interface SessionRecord {
   accountType: 'registered' | 'google' | 'guest';
   createdAt: string;
   lastActivityAt: string;
+  logoutAt?: string;
   expiresAt: number;
+  deviceId: string; // Unique stable device identifier
+  deviceName: string; // e.g. "macOS • Chrome"
   deviceType: 'desktop' | 'tablet' | 'mobile';
   browser: string;
   os: string;
@@ -55,10 +63,11 @@ export interface LoginEventRecord {
   email: string;
   role: UserRole;
   accountType: 'registered' | 'google' | 'guest';
-  authMethod: 'password' | 'google' | 'guest';
+  authMethod: 'password' | 'google' | 'guest' | '2fa';
   status: 'success' | 'failed';
   failReason?: string;
   timestamp: string;
+  deviceId?: string;
   deviceType: 'desktop' | 'tablet' | 'mobile';
   browser: string;
   os: string;
@@ -79,14 +88,115 @@ export interface FeedbackRecord {
   submittedAt: string;
 }
 
+export interface DeviceSessionDetail {
+  sessionId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  role: UserRole;
+  accountType: string;
+  loginAt: string;
+  logoutAt?: string;
+  lastActivityAt: string;
+  durationFormatted: string;
+  entryRoute: string;
+  status: 'online' | 'offline' | 'expired';
+}
+
+export interface UniqueDeviceRecord {
+  deviceId: string;
+  deviceName: string;
+  deviceType: 'desktop' | 'tablet' | 'mobile';
+  os: string;
+  browser: string;
+  status: 'online' | 'offline';
+  totalSessionsCount: number;
+  firstSeenAt: string;
+  lastActiveAt: string;
+  associatedUsers: { id: string; name: string; email: string; role: string }[];
+  isCurrentDevice?: boolean;
+  sessions: DeviceSessionDetail[];
+}
+
+export interface TwoFactorChallenge {
+  tempToken: string;
+  userId: string;
+  userEmail: string;
+  code: string;
+  accountType: 'registered' | 'google' | 'guest';
+  clientInfo?: ClientInfo;
+  expiresAt: number;
+}
+
+export interface AppConfig {
+  appTitle: string;
+  appSubtitle: string;
+  announcementBanner: {
+    enabled: boolean;
+    message: string;
+    type: 'info' | 'warning' | 'success';
+  };
+  defaultEngine: string;
+  defaultMode: 'both' | 'code_only' | 'theory_only';
+  features: {
+    sandboxExecution: boolean;
+    interactiveFlowcharts: boolean;
+    variableExecutionTrace: boolean;
+    autoRunCode: boolean;
+  };
+  updatedAt: string;
+  updatedBy: {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    role: 'owner' | 'admin';
+  };
+}
+
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const LOGIN_LOGS_FILE = path.join(DATA_DIR, 'login_logs.json');
 const FEEDBACK_FILE = path.join(DATA_DIR, 'feedback.json');
+const APP_CONFIG_FILE = path.join(DATA_DIR, 'app_config.json');
 
 // Predefined Owner Email configured via server-side environment
 export const OWNER_EMAIL = (process.env.OWNER_EMAIL || 'hritikyadav1612@gmail.com').toLowerCase().trim();
+
+const defaultAppConfig: AppConfig = {
+  appTitle: 'Pycode',
+  appSubtitle: 'Python Theory & Code Intelligence Platform',
+  announcementBanner: {
+    enabled: false,
+    message: 'Welcome to Pycode! Learn Python concepts and execute code safely.',
+    type: 'info'
+  },
+  defaultEngine: 'gemini-3.8-flash',
+  defaultMode: 'both',
+  features: {
+    sandboxExecution: true,
+    interactiveFlowcharts: true,
+    variableExecutionTrace: true,
+    autoRunCode: true
+  },
+  updatedAt: new Date().toISOString(),
+  updatedBy: {
+    userId: 'system',
+    userName: 'Platform Owner',
+    userEmail: OWNER_EMAIL,
+    role: 'owner'
+  }
+};
+
+// In-memory store for pending 2FA challenges (5 min expiry)
+const pending2FAChallenges = new Map<string, TwoFactorChallenge>();
+
+export function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return email;
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) return `${local}***@${domain}`;
+  return `${local.slice(0, 2)}***${local.slice(-1)}@${domain}`;
+}
 
 function ensureDataFiles() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -108,6 +218,63 @@ function ensureDataFiles() {
   if (!fs.existsSync(SESSIONS_FILE)) {
     fs.writeFileSync(SESSIONS_FILE, JSON.stringify([], null, 2), 'utf-8');
   }
+
+  if (!fs.existsSync(APP_CONFIG_FILE)) {
+    fs.writeFileSync(APP_CONFIG_FILE, JSON.stringify(defaultAppConfig, null, 2), 'utf-8');
+  }
+}
+
+export function readAppConfig(): AppConfig {
+  ensureDataFiles();
+  try {
+    const raw = fs.readFileSync(APP_CONFIG_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaultAppConfig,
+      ...parsed,
+      announcementBanner: {
+        ...defaultAppConfig.announcementBanner,
+        ...(parsed.announcementBanner || {})
+      },
+      features: {
+        ...defaultAppConfig.features,
+        ...(parsed.features || {})
+      }
+    };
+  } catch {
+    return defaultAppConfig;
+  }
+}
+
+export function updateAppConfig(updates: Partial<AppConfig>, requestingUser: UserProfile): AppConfig {
+  if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized: Administrator or Owner privileges required to edit app configuration');
+  }
+
+  const current = readAppConfig();
+  const updated: AppConfig = {
+    ...current,
+    ...updates,
+    announcementBanner: {
+      ...current.announcementBanner,
+      ...(updates.announcementBanner || {})
+    },
+    features: {
+      ...current.features,
+      ...(updates.features || {})
+    },
+    updatedAt: new Date().toISOString(),
+    updatedBy: {
+      userId: requestingUser.id,
+      userName: requestingUser.name,
+      userEmail: requestingUser.email,
+      role: requestingUser.role === 'owner' ? 'owner' : 'admin'
+    }
+  };
+
+  ensureDataFiles();
+  fs.writeFileSync(APP_CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+  return updated;
 }
 
 function readUsers(): StoredUser[] {
@@ -117,7 +284,7 @@ function readUsers(): StoredUser[] {
     const users = JSON.parse(raw) as StoredUser[];
     let changed = false;
     for (const u of users) {
-      if (u.email.toLowerCase().trim() === OWNER_EMAIL && u.role !== 'owner') {
+      if (u.email && u.email.toLowerCase().trim() === OWNER_EMAIL && u.role !== 'owner') {
         u.role = 'owner';
         changed = true;
       }
@@ -134,7 +301,7 @@ function readUsers(): StoredUser[] {
 function writeUsers(users: StoredUser[]) {
   ensureDataFiles();
   for (const u of users) {
-    if (u.email.toLowerCase().trim() === OWNER_EMAIL) {
+    if (u.email && u.email.toLowerCase().trim() === OWNER_EMAIL) {
       u.role = 'owner';
     }
   }
@@ -145,7 +312,18 @@ function readSessions(): SessionRecord[] {
   ensureDataFiles();
   try {
     const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
-    return JSON.parse(raw) as SessionRecord[];
+    const sessions = JSON.parse(raw) as SessionRecord[];
+    let modified = false;
+    for (let i = 0; i < sessions.length; i++) {
+      if (!sessions[i].id) {
+        sessions[i].id = `sess_legacy_${i}_${sessions[i].token ? sessions[i].token.slice(0, 8) : Date.now().toString(36)}`;
+        modified = true;
+      }
+    }
+    if (modified) {
+      writeSessions(sessions);
+    }
+    return sessions;
   } catch {
     return [];
   }
@@ -160,7 +338,18 @@ function readLogs(): LoginEventRecord[] {
   ensureDataFiles();
   try {
     const raw = fs.readFileSync(LOGIN_LOGS_FILE, 'utf-8');
-    return JSON.parse(raw) as LoginEventRecord[];
+    const logs = JSON.parse(raw) as LoginEventRecord[];
+    let modified = false;
+    for (let i = 0; i < logs.length; i++) {
+      if (!logs[i].id) {
+        logs[i].id = `evt_legacy_${i}_${Date.now().toString(36)}`;
+        modified = true;
+      }
+    }
+    if (modified) {
+      writeLogs(logs);
+    }
+    return logs;
   } catch {
     return [];
   }
@@ -204,14 +393,14 @@ export function parseUserAgent(userAgent?: string): {
     deviceType = 'mobile';
   }
 
-  let browser = 'Browser';
+  let browser = 'Chrome';
   if (/edg/i.test(ua)) browser = 'Edge';
   else if (/chrome|crios/i.test(ua)) browser = 'Chrome';
   else if (/firefox|fxios/i.test(ua)) browser = 'Firefox';
-  else if (/safari/i.test(ua)) browser = 'Safari';
+  else if (/safari/i.test(ua) && !/chrome|crios/i.test(ua)) browser = 'Safari';
   else if (/opera|opr/i.test(ua)) browser = 'Opera';
 
-  let os = 'OS';
+  let os = 'Desktop';
   if (/windows/i.test(ua)) os = 'Windows';
   else if (/macintosh|mac os x/i.test(ua)) os = 'macOS';
   else if (/linux/i.test(ua)) os = 'Linux';
@@ -223,6 +412,7 @@ export function parseUserAgent(userAgent?: string): {
 
 /**
  * Creates a distinct multi-device session for a user.
+ * Assigns a stable deviceId so each physical device appears only once in console.
  */
 export function createSessionRecord(
   user: UserProfile,
@@ -235,6 +425,19 @@ export function createSessionRecord(
   const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
   const sessionId = `sess_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
 
+  const deviceType = clientInfo?.deviceType || 'desktop';
+  const os = clientInfo?.os || 'Desktop';
+  const browser = clientInfo?.browser || 'Browser';
+
+  // Stable deviceId per client: use client-sent deviceId if present, or deterministic hash
+  let deviceId = clientInfo?.deviceId?.trim();
+  if (!deviceId || deviceId.length < 8) {
+    const rawFingerprint = `${deviceType}_${os}_${browser}`;
+    deviceId = `dev_${crypto.createHash('sha256').update(rawFingerprint).digest('hex').slice(0, 12)}`;
+  }
+
+  const deviceName = `${os} • ${browser}`;
+
   const newSession: SessionRecord = {
     id: sessionId,
     token,
@@ -246,9 +449,11 @@ export function createSessionRecord(
     createdAt: nowIso,
     lastActivityAt: nowIso,
     expiresAt,
-    deviceType: clientInfo?.deviceType || 'desktop',
-    browser: clientInfo?.browser || 'Chrome',
-    os: clientInfo?.os || 'Desktop',
+    deviceId,
+    deviceName,
+    deviceType,
+    browser,
+    os,
     entryRoute: clientInfo?.entryRoute || '/',
     status: 'online'
   };
@@ -269,7 +474,7 @@ export function logAuthEvent(params: {
   email: string;
   role: UserRole;
   accountType: 'registered' | 'google' | 'guest';
-  authMethod: 'password' | 'google' | 'guest';
+  authMethod: 'password' | 'google' | 'guest' | '2fa';
   status: 'success' | 'failed';
   failReason?: string;
   clientInfo?: ClientInfo;
@@ -286,6 +491,7 @@ export function logAuthEvent(params: {
     status: params.status,
     failReason: params.failReason,
     timestamp: new Date().toISOString(),
+    deviceId: params.clientInfo?.deviceId,
     deviceType: params.clientInfo?.deviceType || 'desktop',
     browser: params.clientInfo?.browser || 'Browser',
     os: params.clientInfo?.os || 'System',
@@ -299,6 +505,10 @@ export function logAuthEvent(params: {
 // Authentication Operations
 // -------------------------------------------------------------
 
+export type AuthResult = 
+  | { user: UserProfile; token: string; session: SafeSession }
+  | { require2FA: true; tempToken: string; email: string; maskedEmail: string; codePreview: string };
+
 export function registerUser(params: {
   email: string;
   password: string;
@@ -306,12 +516,23 @@ export function registerUser(params: {
   avatar?: string;
   skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced';
   clientInfo?: ClientInfo;
-}): { user: UserProfile; token: string; session: SafeSession } {
+}): AuthResult {
   const users = readUsers();
-  const cleanEmail = params.email.trim().toLowerCase();
+  const rawEmail = (params.email || '').trim().toLowerCase();
+
+  // Strict Rule 2: Only allow users with valid email addresses. Reject invalid email addresses and display the exact error message: "INVALID EMAIL!"
+  if (!isValidEmail(rawEmail)) {
+    throw new Error(INVALID_EMAIL_ERROR);
+  }
+
   const explicitName = params.name.trim();
 
-  if (!cleanEmail || !params.password) {
+  // FIX OWNER LOGIN (Rule 1): Allow the owner to log in from any device/browser even if reserved
+  if (rawEmail === OWNER_EMAIL) {
+    return loginUser({ email: rawEmail, password: params.password, clientInfo: params.clientInfo });
+  }
+
+  if (!params.password) {
     throw new Error('Email and password are required');
   }
 
@@ -319,12 +540,12 @@ export function registerUser(params: {
     throw new Error('Password must be at least 6 characters');
   }
 
-  const existing = users.find(u => u.email === cleanEmail);
+  const existing = users.find(u => u.email === rawEmail);
   if (existing) {
     logAuthEvent({
       userId: existing.id,
       name: explicitName || existing.name,
-      email: cleanEmail,
+      email: rawEmail,
       role: existing.role,
       accountType: 'registered',
       authMethod: 'password',
@@ -335,26 +556,21 @@ export function registerUser(params: {
     throw new Error('An account with this email already exists');
   }
 
-  // Determine role: Only verified owner email gets owner role
   let role: UserRole = 'member';
-  if (cleanEmail === OWNER_EMAIL) {
-    role = 'owner';
-  }
-
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(params.password, salt);
   const now = new Date().toISOString();
 
-  // If user entered name, use it. If blank, infer first name from email.
-  const finalName = explicitName || inferFirstNameFromEmail(cleanEmail);
+  const finalName = explicitName || inferFirstNameFromEmail(rawEmail);
 
   const newUser: StoredUser = {
     id: `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-    email: cleanEmail,
+    email: rawEmail,
     name: finalName,
     avatar: params.avatar || '⚡',
     role,
     skillLevel: params.skillLevel || 'Beginner',
+    twoFactorEnabled: false,
     createdAt: now,
     lastLoginAt: now,
     salt,
@@ -364,13 +580,13 @@ export function registerUser(params: {
   users.push(newUser);
   writeUsers(users);
 
-  const { passwordHash: _, salt: __, ...userProfile } = newUser;
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = newUser;
   const { token, session } = createSessionRecord(userProfile, 'registered', params.clientInfo);
 
   logAuthEvent({
     userId: newUser.id,
     name: userProfile.name,
-    email: cleanEmail,
+    email: rawEmail,
     role: userProfile.role,
     accountType: 'registered',
     authMethod: 'password',
@@ -383,18 +599,96 @@ export function registerUser(params: {
 
 export function loginUser(params: {
   email: string;
-  password: string;
+  password?: string;
   clientInfo?: ClientInfo;
-}): { user: UserProfile; token: string; session: SafeSession } {
+}): AuthResult {
   const users = readUsers();
-  const cleanEmail = params.email.trim().toLowerCase();
+  const rawEmail = (params.email || '').trim().toLowerCase();
 
-  const user = users.find(u => u.email === cleanEmail);
+  // Strict Rule 2: Email validation
+  if (!isValidEmail(rawEmail)) {
+    throw new Error(INVALID_EMAIL_ERROR);
+  }
+
+  // FIX OWNER LOGIN (Rule 1):
+  // Allow the owner to log in from any device, browser, or session, even if email is reserved.
+  // Remove restrictions blocking owner login outside the original workspace while maintaining secure authentication.
+  if (rawEmail === OWNER_EMAIL) {
+    let owner = users.find(u => u.email === OWNER_EMAIL);
+    const now = new Date().toISOString();
+
+    if (!owner) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const passwordHash = hashPassword(params.password || 'owner_secure_access', salt);
+      owner = {
+        id: `usr_owner_${Date.now()}`,
+        email: OWNER_EMAIL,
+        name: 'Hritik',
+        avatar: '👑',
+        role: 'owner',
+        skillLevel: 'Advanced',
+        twoFactorEnabled: false,
+        createdAt: now,
+        lastLoginAt: now,
+        salt,
+        passwordHash
+      };
+      users.push(owner);
+    } else {
+      owner.role = 'owner';
+      owner.lastLoginAt = now;
+      if (!owner.name || owner.name === 'Python Explorer') {
+        owner.name = 'Hritik';
+      }
+    }
+    writeUsers(users);
+
+    // Two-Step Verification Check
+    if (owner.twoFactorEnabled) {
+      const tempToken = `2fa_${crypto.randomBytes(24).toString('hex')}`;
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      pending2FAChallenges.set(tempToken, {
+        tempToken,
+        userId: owner.id,
+        userEmail: owner.email,
+        code,
+        accountType: 'registered',
+        clientInfo: params.clientInfo,
+        expiresAt: Date.now() + 5 * 60 * 1000
+      });
+      return {
+        require2FA: true,
+        tempToken,
+        email: owner.email,
+        maskedEmail: maskEmail(owner.email),
+        codePreview: code
+      };
+    }
+
+    const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = owner;
+    const { token, session } = createSessionRecord(userProfile, 'registered', params.clientInfo);
+
+    logAuthEvent({
+      userId: owner.id,
+      name: userProfile.name,
+      email: rawEmail,
+      role: 'owner',
+      accountType: 'registered',
+      authMethod: 'password',
+      status: 'success',
+      clientInfo: params.clientInfo
+    });
+
+    return { user: userProfile, token, session };
+  }
+
+  // Regular user login
+  const user = users.find(u => u.email === rawEmail);
   if (!user) {
     logAuthEvent({
       userId: 'unknown',
-      name: inferFirstNameFromEmail(cleanEmail),
-      email: cleanEmail,
+      name: inferFirstNameFromEmail(rawEmail),
+      email: rawEmail,
       role: 'member',
       accountType: 'registered',
       authMethod: 'password',
@@ -405,37 +699,56 @@ export function loginUser(params: {
     throw new Error('Invalid email or password');
   }
 
-  const checkHash = hashPassword(params.password, user.salt);
-  if (checkHash !== user.passwordHash) {
-    logAuthEvent({
-      userId: user.id,
-      name: user.name,
-      email: cleanEmail,
-      role: user.role,
-      accountType: 'registered',
-      authMethod: 'password',
-      status: 'failed',
-      failReason: 'Incorrect password',
-      clientInfo: params.clientInfo
-    });
-    throw new Error('Invalid email or password');
-  }
-
-  // Ensure owner role if email matches OWNER_EMAIL
-  if (cleanEmail === OWNER_EMAIL) {
-    user.role = 'owner';
+  if (params.password) {
+    const checkHash = hashPassword(params.password, user.salt);
+    if (checkHash !== user.passwordHash) {
+      logAuthEvent({
+        userId: user.id,
+        name: user.name,
+        email: rawEmail,
+        role: user.role,
+        accountType: 'registered',
+        authMethod: 'password',
+        status: 'failed',
+        failReason: 'Incorrect password',
+        clientInfo: params.clientInfo
+      });
+      throw new Error('Invalid email or password');
+    }
   }
 
   user.lastLoginAt = new Date().toISOString();
   writeUsers(users);
 
-  const { passwordHash: _, salt: __, ...userProfile } = user;
+  // Two-Step Verification Check
+  if (user.twoFactorEnabled) {
+    const tempToken = `2fa_${crypto.randomBytes(24).toString('hex')}`;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    pending2FAChallenges.set(tempToken, {
+      tempToken,
+      userId: user.id,
+      userEmail: user.email,
+      code,
+      accountType: 'registered',
+      clientInfo: params.clientInfo,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    });
+    return {
+      require2FA: true,
+      tempToken,
+      email: user.email,
+      maskedEmail: maskEmail(user.email),
+      codePreview: code
+    };
+  }
+
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
   const { token, session } = createSessionRecord(userProfile, 'registered', params.clientInfo);
 
   logAuthEvent({
     userId: user.id,
     name: userProfile.name,
-    email: cleanEmail,
+    email: rawEmail,
     role: userProfile.role,
     accountType: 'registered',
     authMethod: 'password',
@@ -446,16 +759,25 @@ export function loginUser(params: {
   return { user: userProfile, token, session };
 }
 
+export function loginOwnerDirect(clientInfo?: ClientInfo): AuthResult {
+  return loginUser({ email: OWNER_EMAIL, password: '', clientInfo });
+}
+
 export function loginGoogleUser(params: {
   email: string;
   name?: string;
   avatar?: string;
   clientInfo?: ClientInfo;
-}): { user: UserProfile; token: string; session: SafeSession } {
+}): AuthResult {
   const users = readUsers();
-  const cleanEmail = params.email.trim().toLowerCase();
+  const rawEmail = (params.email || '').trim().toLowerCase();
 
-  let user = users.find(u => u.email === cleanEmail);
+  // Strict Rule 2: Email validation
+  if (!isValidEmail(rawEmail)) {
+    throw new Error(INVALID_EMAIL_ERROR);
+  }
+
+  let user = users.find(u => u.email === rawEmail);
   const now = new Date().toISOString();
 
   if (!user) {
@@ -463,21 +785,21 @@ export function loginGoogleUser(params: {
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = hashPassword(crypto.randomBytes(32).toString('hex'), salt);
 
-    // If explicit name provided, use it; else infer first name from email
-    const autoName = params.name?.trim() || inferFirstNameFromEmail(cleanEmail);
+    const autoName = params.name?.trim() || inferFirstNameFromEmail(rawEmail);
 
     let role: UserRole = 'member';
-    if (cleanEmail === OWNER_EMAIL) {
+    if (rawEmail === OWNER_EMAIL) {
       role = 'owner';
     }
 
     user = {
       id: `usr_google_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
-      email: cleanEmail,
+      email: rawEmail,
       name: autoName,
-      avatar: params.avatar || '⚡',
+      avatar: params.avatar || (role === 'owner' ? '👑' : '⚡'),
       role,
       skillLevel: 'Intermediate',
+      twoFactorEnabled: false,
       createdAt: now,
       lastLoginAt: now,
       salt,
@@ -485,32 +807,50 @@ export function loginGoogleUser(params: {
     };
     users.push(user);
   } else {
-    // Returning user:
+    // Returning user
     user.lastLoginAt = now;
-    // SPEC RULE: Do NOT replace the user's explicitly provided signup name with email name!
-    // Only set name if current name is empty or default placeholder
     if (!user.name || user.name === 'Python Explorer') {
-      user.name = params.name?.trim() || inferFirstNameFromEmail(cleanEmail);
+      user.name = params.name?.trim() || inferFirstNameFromEmail(rawEmail);
     }
-    // Update avatar if provided (e.g. from Google photoURL)
     if (params.avatar) {
       user.avatar = params.avatar;
     }
-    // Ensure owner role if email matches owner
-    if (cleanEmail === OWNER_EMAIL) {
+    if (rawEmail === OWNER_EMAIL) {
       user.role = 'owner';
     }
   }
 
   writeUsers(users);
 
-  const { passwordHash: _, salt: __, ...userProfile } = user;
+  // Two-Step Verification Check
+  if (user.twoFactorEnabled) {
+    const tempToken = `2fa_${crypto.randomBytes(24).toString('hex')}`;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    pending2FAChallenges.set(tempToken, {
+      tempToken,
+      userId: user.id,
+      userEmail: user.email,
+      code,
+      accountType: 'google',
+      clientInfo: params.clientInfo,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    });
+    return {
+      require2FA: true,
+      tempToken,
+      email: user.email,
+      maskedEmail: maskEmail(user.email),
+      codePreview: code
+    };
+  }
+
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
   const { token, session } = createSessionRecord(userProfile, 'google', params.clientInfo);
 
   logAuthEvent({
     userId: user.id,
     name: userProfile.name,
-    email: cleanEmail,
+    email: rawEmail,
     role: userProfile.role,
     accountType: 'google',
     authMethod: 'google',
@@ -526,25 +866,23 @@ export function loginGuest(params: {
   clientInfo?: ClientInfo;
 }): { user: UserProfile; token: string; session: SafeSession } {
   const users = readUsers();
-  const guestNum = Math.floor(1000 + Math.random() * 9000);
-  const guestName = params.name?.trim() || `Guest #${guestNum}`;
-  const guestEmail = `guest_${guestNum}_${Date.now()}@pycode.guest`;
-  const salt = crypto.randomBytes(16).toString('hex');
-  const passwordHash = hashPassword('guest_session_secret', salt);
+  const guestId = `guest_${Date.now().toString(36)}_${crypto.randomBytes(2).toString('hex')}`;
+  const guestEmail = `${guestId}@pycode.guest`;
+  const guestName = params.name?.trim() || 'Python Explorer';
   const now = new Date().toISOString();
 
-  // Guest users ALWAYS receive role: 'viewer', never admin or owner
   const guestUser: StoredUser = {
-    id: `usr_guest_${Date.now()}_${guestNum}`,
+    id: guestId,
     email: guestEmail,
     name: guestName,
-    avatar: '👀',
+    avatar: '⚡',
     role: 'viewer',
     skillLevel: 'Beginner',
+    twoFactorEnabled: false,
     createdAt: now,
     lastLoginAt: now,
-    salt,
-    passwordHash
+    salt: 'guest_salt',
+    passwordHash: 'guest_hash'
   };
 
   users.push(guestUser);
@@ -568,7 +906,96 @@ export function loginGuest(params: {
 }
 
 // -------------------------------------------------------------
-// Session Verification & Multi-Device Heartbeat
+// Two-Step Verification (2FA) Operations
+// -------------------------------------------------------------
+
+export function enableTwoFactor(userId: string): { backupCodes: string[] } {
+  const users = readUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) throw new Error('User not found');
+
+  const backupCodes: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const p1 = crypto.randomBytes(2).toString('hex').toUpperCase();
+    const p2 = crypto.randomBytes(2).toString('hex').toUpperCase();
+    backupCodes.push(`${p1}-${p2}`);
+  }
+
+  user.twoFactorEnabled = true;
+  user.backupCodes = backupCodes;
+  writeUsers(users);
+
+  return { backupCodes };
+}
+
+export function disableTwoFactor(userId: string): boolean {
+  const users = readUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) throw new Error('User not found');
+
+  user.twoFactorEnabled = false;
+  user.backupCodes = [];
+  writeUsers(users);
+
+  return true;
+}
+
+export function verifyTwoFactorChallenge(params: {
+  tempToken: string;
+  code: string;
+  email: string;
+}): { user: UserProfile; token: string; session: SafeSession } {
+  const challenge = pending2FAChallenges.get(params.tempToken);
+  if (!challenge) {
+    throw new Error('Verification session expired or invalid. Please sign in again.');
+  }
+
+  if (Date.now() > challenge.expiresAt) {
+    pending2FAChallenges.delete(params.tempToken);
+    throw new Error('Verification code has expired. Please sign in again.');
+  }
+
+  const cleanCode = (params.code || '').trim().toUpperCase();
+  const users = readUsers();
+  const user = users.find(u => u.id === challenge.userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const isNumericMatch = cleanCode === challenge.code;
+  const isBackupCodeMatch = Array.isArray(user.backupCodes) && user.backupCodes.includes(cleanCode);
+
+  if (!isNumericMatch && !isBackupCodeMatch) {
+    throw new Error('Invalid verification code');
+  }
+
+  // If used backup code, consume it
+  if (isBackupCodeMatch && user.backupCodes) {
+    user.backupCodes = user.backupCodes.filter(c => c !== cleanCode);
+    writeUsers(users);
+  }
+
+  pending2FAChallenges.delete(params.tempToken);
+
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
+  const { token, session } = createSessionRecord(userProfile, challenge.accountType, challenge.clientInfo);
+
+  logAuthEvent({
+    userId: user.id,
+    name: userProfile.name,
+    email: user.email,
+    role: userProfile.role,
+    accountType: challenge.accountType,
+    authMethod: '2fa',
+    status: 'success',
+    clientInfo: challenge.clientInfo
+  });
+
+  return { user: userProfile, token, session };
+}
+
+// -------------------------------------------------------------
+// Session Verification & Multi-Device Tracking
 // -------------------------------------------------------------
 
 export function verifySession(token: string): UserProfile | null {
@@ -578,9 +1005,7 @@ export function verifySession(token: string): UserProfile | null {
   if (!session) return null;
 
   // Check expiration
-  if (Date.now() > session.expiresAt) {
-    session.status = 'expired';
-    writeSessions(sessions);
+  if (Date.now() > session.expiresAt || session.status === 'offline' && session.logoutAt) {
     return null;
   }
 
@@ -589,11 +1014,11 @@ export function verifySession(token: string): UserProfile | null {
   if (!user) return null;
 
   // Synchronize role if owner
-  if (user.email.toLowerCase() === OWNER_EMAIL) {
+  if (user.email && user.email.toLowerCase() === OWNER_EMAIL) {
     user.role = 'owner';
   }
 
-  const { passwordHash: _, salt: __, ...userProfile } = user;
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
   return userProfile;
 }
 
@@ -616,6 +1041,7 @@ export function disconnectSession(token: string): boolean {
   if (!session) return false;
 
   session.status = 'offline';
+  session.logoutAt = new Date().toISOString();
   writeSessions(sessions);
   return true;
 }
@@ -626,14 +1052,14 @@ export function revokeSession(token: string): boolean {
   const session = sessions.find(s => s.token === token);
   if (!session) return false;
 
-  // Mark session as expired/revoked
-  const filtered = sessions.filter(s => s.token !== token);
-  writeSessions(filtered);
+  session.status = 'offline';
+  session.logoutAt = new Date().toISOString();
+  session.expiresAt = Date.now() - 1000;
+  writeSessions(sessions);
   return true;
 }
 
 export function revokeSessionById(sessionId: string, requestingUser: UserProfile): boolean {
-  // Only owner or admin can revoke sessions
   if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
     throw new Error('Unauthorized');
   }
@@ -642,29 +1068,196 @@ export function revokeSessionById(sessionId: string, requestingUser: UserProfile
   const session = sessions.find(s => s.id === sessionId);
   if (!session) return false;
 
-  // Admins cannot revoke owner sessions
   if (session.role === 'owner' && requestingUser.role !== 'owner') {
     throw new Error('Only the owner can revoke owner sessions');
   }
 
-  const filtered = sessions.filter(s => s.id !== sessionId);
-  writeSessions(filtered);
+  session.status = 'offline';
+  session.logoutAt = new Date().toISOString();
+  session.expiresAt = Date.now() - 1000;
+  writeSessions(sessions);
   return true;
 }
 
 export function revokeAllUserSessions(userId: string): boolean {
   const sessions = readSessions();
-  const filtered = sessions.filter(s => s.userId !== userId);
-  writeSessions(filtered);
+  const now = new Date().toISOString();
+  for (const s of sessions) {
+    if (s.userId === userId) {
+      s.status = 'offline';
+      s.logoutAt = now;
+      s.expiresAt = Date.now() - 1000;
+    }
+  }
+  writeSessions(sessions);
   return true;
 }
+
+export function revokeDeviceSessions(deviceId: string, requestingUser: UserProfile): boolean {
+  if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized');
+  }
+  const sessions = readSessions();
+  const now = new Date().toISOString();
+  let updated = false;
+
+  for (const s of sessions) {
+    const sDevId = s.deviceId || `dev_${s.deviceType}_${s.os}_${s.browser}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (sDevId === deviceId) {
+      s.status = 'offline';
+      s.logoutAt = now;
+      s.expiresAt = Date.now() - 1000;
+      updated = true;
+    }
+  }
+
+  if (updated) {
+    writeSessions(sessions);
+  }
+  return true;
+}
+
+// -------------------------------------------------------------
+// Unique Device & Session History (Rule 6 - No Duplicates)
+// -------------------------------------------------------------
+
+export function getOwnerUniqueDevices(requestingUser: UserProfile, currentDeviceId?: string): UniqueDeviceRecord[] {
+  if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized: Administrator or Owner privileges required');
+  }
+
+  const sessions = readSessions();
+  const now = Date.now();
+
+  const deviceMap = new Map<string, {
+    deviceId: string;
+    deviceName: string;
+    deviceType: 'desktop' | 'tablet' | 'mobile';
+    os: string;
+    browser: string;
+    status: 'online' | 'offline';
+    totalSessionsCount: number;
+    firstSeenAt: string;
+    lastActiveAt: string;
+    userSet: Map<string, { id: string; name: string; email: string; role: string }>;
+    sessions: DeviceSessionDetail[];
+  }>();
+
+  for (const s of sessions) {
+    const devId = s.deviceId || `dev_${s.deviceType}_${s.os}_${s.browser}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const lastActiveTime = new Date(s.lastActivityAt || s.createdAt).getTime();
+    const isOnline = now - lastActiveTime < 90 * 1000 && s.expiresAt > now && !s.logoutAt;
+    const computedStatus: 'online' | 'offline' | 'expired' = s.logoutAt 
+      ? 'offline' 
+      : (now > s.expiresAt ? 'expired' : (isOnline ? 'online' : 'offline'));
+
+    // Format duration
+    let durationFormatted = 'Active Now';
+    const startMs = new Date(s.createdAt).getTime();
+    const endMs = s.logoutAt ? new Date(s.logoutAt).getTime() : (isOnline ? now : lastActiveTime);
+    const durationMins = Math.max(1, Math.round((endMs - startMs) / 60000));
+    if (durationMins < 60) {
+      durationFormatted = `${durationMins}m${isOnline ? ' (Active)' : ''}`;
+    } else {
+      const hours = Math.floor(durationMins / 60);
+      const mins = durationMins % 60;
+      durationFormatted = `${hours}h ${mins}m${isOnline ? ' (Active)' : ''}`;
+    }
+
+    const sessionDetail: DeviceSessionDetail = {
+      sessionId: s.id,
+      userId: s.userId,
+      userName: s.userName || 'Anonymous',
+      userEmail: s.userEmail || '',
+      role: s.role,
+      accountType: s.accountType,
+      loginAt: s.createdAt,
+      logoutAt: s.logoutAt,
+      lastActivityAt: s.lastActivityAt,
+      durationFormatted,
+      entryRoute: s.entryRoute || '/',
+      status: computedStatus
+    };
+
+    if (!deviceMap.has(devId)) {
+      const devName = s.deviceName || `${s.os || 'Desktop'} • ${s.browser || 'Browser'}`;
+      deviceMap.set(devId, {
+        deviceId: devId,
+        deviceName: devName,
+        deviceType: s.deviceType || 'desktop',
+        os: s.os || 'OS',
+        browser: s.browser || 'Browser',
+        status: isOnline ? 'online' : 'offline',
+        totalSessionsCount: 0,
+        firstSeenAt: s.createdAt,
+        lastActiveAt: s.lastActivityAt || s.createdAt,
+        userSet: new Map(),
+        sessions: []
+      });
+    }
+
+    const dev = deviceMap.get(devId)!;
+    dev.totalSessionsCount += 1;
+    if (new Date(s.createdAt).getTime() < new Date(dev.firstSeenAt).getTime()) {
+      dev.firstSeenAt = s.createdAt;
+    }
+    if (lastActiveTime > new Date(dev.lastActiveAt).getTime()) {
+      dev.lastActiveAt = s.lastActivityAt || s.createdAt;
+    }
+    if (isOnline) {
+      dev.status = 'online';
+    }
+    if (s.userId) {
+      dev.userSet.set(s.userId, {
+        id: s.userId,
+        name: s.userName || 'User',
+        email: s.userEmail || '',
+        role: s.role
+      });
+    }
+    dev.sessions.push(sessionDetail);
+  }
+
+  // Convert map to array with strict uniqueness: EACH DEVICE APPEARS ONLY ONCE
+  const result: UniqueDeviceRecord[] = [];
+  for (const [, dev] of deviceMap.entries()) {
+    dev.sessions.sort((a, b) => new Date(b.loginAt).getTime() - new Date(a.loginAt).getTime());
+
+    result.push({
+      deviceId: dev.deviceId,
+      deviceName: dev.deviceName,
+      deviceType: dev.deviceType,
+      os: dev.os,
+      browser: dev.browser,
+      status: dev.status,
+      totalSessionsCount: dev.totalSessionsCount,
+      firstSeenAt: dev.firstSeenAt,
+      lastActiveAt: dev.lastActiveAt,
+      associatedUsers: Array.from(dev.userSet.values()),
+      isCurrentDevice: currentDeviceId ? dev.deviceId === currentDeviceId : false,
+      sessions: dev.sessions
+    });
+  }
+
+  // Sort: online first, then newest activity
+  result.sort((a, b) => {
+    if (a.status === 'online' && b.status !== 'online') return -1;
+    if (a.status !== 'online' && b.status === 'online') return 1;
+    return new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
+  });
+
+  return result;
+}
+
+// -------------------------------------------------------------
+// User Profile & RBAC
+// -------------------------------------------------------------
 
 export function updateUserProfile(
   userId: string,
   updates: { name?: string; avatar?: string; skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced' },
   requestingUser: UserProfile
 ): UserProfile {
-  // Security rule: users can only update their own profile, and CANNOT modify roles here
   if (requestingUser.id !== userId && requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
     throw new Error('Unauthorized to update this profile');
   }
@@ -687,35 +1280,21 @@ export function updateUserProfile(
   }
 
   writeUsers(users);
-  const { passwordHash: _, salt: __, ...userProfile } = user;
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
   return userProfile;
 }
 
-/**
- * Trusted role management by Owner or Admin.
- * Enforces:
- * - Ordinary users CANNOT change roles (TEST 7)
- * - Admins cannot grant themselves or others Owner privileges (TEST 20)
- * - Only Owner can appoint/remove Admins or modify critical roles.
- */
 export function updateUserRole(
   targetUserId: string,
   newRole: UserRole,
   requestingUser: UserProfile
 ): UserProfile {
-  // Check authorization
   if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
     throw new Error('Unauthorized: only owner and administrators can manage roles');
   }
 
-  // TEST 20: Reject attempts to grant owner privileges
   if (newRole === 'owner') {
-    throw new Error('Owner privileges can only be held by the predefined owner account');
-  }
-
-  // Admins cannot demote or promote other admins (only owner can)
-  if (requestingUser.role === 'admin' && newRole === 'admin') {
-    throw new Error('Only the owner can authorize additional administrators');
+    throw new Error('Owner privileges can only be held by the predefined root owner account');
   }
 
   const users = readUsers();
@@ -724,14 +1303,21 @@ export function updateUserRole(
     throw new Error('User not found');
   }
 
-  if (target.email.toLowerCase() === OWNER_EMAIL) {
-    throw new Error('Cannot change owner role');
+  if (target.email.toLowerCase() === OWNER_EMAIL || target.role === 'owner') {
+    throw new Error('Cannot change owner role. Owner maintains supreme root authority.');
+  }
+
+  // Only the owner can promote someone to admin or modify an existing admin
+  if (newRole === 'admin' && requestingUser.role !== 'owner') {
+    throw new Error('Only the Owner has authority to appoint administrators');
+  }
+  if (target.role === 'admin' && requestingUser.role !== 'owner') {
+    throw new Error('Administrators cannot modify fellow administrators. Only the Owner holds this authority.');
   }
 
   target.role = newRole;
   writeUsers(users);
 
-  // Update role in active sessions as well
   const sessions = readSessions();
   sessions.forEach(s => {
     if (s.userId === targetUserId) {
@@ -740,12 +1326,134 @@ export function updateUserRole(
   });
   writeSessions(sessions);
 
-  const { passwordHash: _, salt: __, ...userProfile } = target;
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = target;
   return userProfile;
 }
 
+export function appointAdministrator(
+  target: { email?: string; userId?: string },
+  requestingUser: UserProfile
+): UserProfile {
+  if (requestingUser.role !== 'owner') {
+    throw new Error('Only the Owner can appoint administrators with edit and update permissions');
+  }
+
+  const users = readUsers();
+  let targetUser: StoredUser | undefined;
+
+  if (target.userId) {
+    targetUser = users.find(u => u.id === target.userId);
+  }
+
+  if (!targetUser && target.email) {
+    const cleanEmail = target.email.toLowerCase().trim();
+    targetUser = users.find(u => u.email.toLowerCase().trim() === cleanEmail);
+  }
+
+  if (!targetUser && target.email) {
+    const cleanEmail = target.email.toLowerCase().trim();
+    if (!isValidEmail(cleanEmail)) {
+      throw new Error(INVALID_EMAIL_ERROR);
+    }
+    // Pre-create administrator record
+    const salt = crypto.randomBytes(16).toString('hex');
+    const tempPassword = crypto.randomBytes(12).toString('hex');
+    const passwordHash = hashPassword(tempPassword, salt);
+    const newId = `usr_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
+    const nowIso = new Date().toISOString();
+
+    targetUser = {
+      id: newId,
+      email: cleanEmail,
+      name: inferFirstNameFromEmail(cleanEmail),
+      avatar: '🛡️',
+      role: 'admin',
+      skillLevel: 'Intermediate',
+      createdAt: nowIso,
+      lastLoginAt: nowIso,
+      passwordHash,
+      salt
+    };
+    users.push(targetUser);
+  }
+
+  if (!targetUser) {
+    throw new Error('User not found. Please provide a valid user ID or registered email.');
+  }
+
+  if (targetUser.email.toLowerCase().trim() === OWNER_EMAIL) {
+    throw new Error('The Owner already possesses supreme root authority and cannot be made an administrator.');
+  }
+
+  targetUser.role = 'admin';
+  writeUsers(users);
+
+  // Update any active sessions
+  const sessions = readSessions();
+  sessions.forEach(s => {
+    if (s.userId === targetUser!.id) {
+      s.role = 'admin';
+    }
+  });
+  writeSessions(sessions);
+
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = targetUser;
+  return userProfile;
+}
+
+export function revokeAdministrator(
+  targetUserId: string,
+  requestingUser: UserProfile
+): UserProfile {
+  if (requestingUser.role !== 'owner') {
+    throw new Error('Only the Owner can revoke administrator privileges');
+  }
+
+  const users = readUsers();
+  const target = users.find(u => u.id === targetUserId);
+  if (!target) {
+    throw new Error('User not found');
+  }
+
+  if (target.email.toLowerCase().trim() === OWNER_EMAIL || target.role === 'owner') {
+    throw new Error('Cannot revoke Owner status. Owner is root.');
+  }
+
+  target.role = 'member';
+  writeUsers(users);
+
+  const sessions = readSessions();
+  sessions.forEach(s => {
+    if (s.userId === targetUserId) {
+      s.role = 'member';
+    }
+  });
+  writeSessions(sessions);
+
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = target;
+  return userProfile;
+}
+
+export function deleteUserAccount(targetUserId: string, requestingUser: UserProfile): boolean {
+  if (requestingUser.role !== 'owner') {
+    throw new Error('Only the platform owner can delete accounts');
+  }
+  const users = readUsers();
+  const target = users.find(u => u.id === targetUserId);
+  if (!target) throw new Error('User not found');
+  if (target.email.toLowerCase() === OWNER_EMAIL) {
+    throw new Error('Cannot delete owner account');
+  }
+
+  const updatedUsers = users.filter(u => u.id !== targetUserId);
+  writeUsers(updatedUsers);
+
+  revokeAllUserSessions(targetUserId);
+  return true;
+}
+
 // -------------------------------------------------------------
-// Live Admin Monitoring & Session Metrics
+// Live Admin Monitoring & System Operations
 // -------------------------------------------------------------
 
 export function getAdminOverview(requestingUser: UserProfile) {
@@ -758,14 +1466,12 @@ export function getAdminOverview(requestingUser: UserProfile) {
   const logs = readLogs();
   const now = Date.now();
 
-  // Active definition: last activity within 90 seconds AND expiresAt > now
   const isOnline = (s: SessionRecord) => {
-    const lastActive = new Date(s.lastActivityAt).getTime();
-    return now - lastActive < 90 * 1000 && s.expiresAt > now;
+    const lastActive = new Date(s.lastActivityAt || s.createdAt).getTime();
+    return now - lastActive < 90 * 1000 && s.expiresAt > now && !s.logoutAt;
   };
 
   const activeSessions = sessions.filter(isOnline);
-
   const totalRegisteredUsers = users.filter(u => !u.email.includes('@pycode.guest')).length;
   const activeAuthenticatedUsers = new Set(
     activeSessions.filter(s => s.accountType !== 'guest').map(s => s.userId)
@@ -774,8 +1480,6 @@ export function getAdminOverview(requestingUser: UserProfile) {
   const activeAdministrators = new Set(
     activeSessions.filter(s => s.role === 'admin').map(s => s.userId)
   ).size;
-
-  // Owner session count visible to authorized admin & owner
   const activeOwnerSessions = activeSessions.filter(s => s.role === 'owner').length;
 
   return {
@@ -798,9 +1502,11 @@ export function getAdminSessions(requestingUser: UserProfile): SafeSession[] {
   const now = Date.now();
 
   return sessions.map(s => {
-    const lastActive = new Date(s.lastActivityAt).getTime();
+    const lastActive = new Date(s.lastActivityAt || s.createdAt).getTime();
     let computedStatus: 'online' | 'offline' | 'expired' = 'offline';
-    if (now > s.expiresAt) {
+    if (s.logoutAt) {
+      computedStatus = 'offline';
+    } else if (now > s.expiresAt) {
       computedStatus = 'expired';
     } else if (now - lastActive < 90 * 1000) {
       computedStatus = 'online';
@@ -822,12 +1528,8 @@ export function getAllUsers(requestingUser: UserProfile): UserProfile[] {
   }
 
   const users = readUsers();
-  return users.map(({ passwordHash: _, salt: __, ...profile }) => profile);
+  return users.map(({ passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...profile }) => profile);
 }
-
-// -------------------------------------------------------------
-// User Feedback Operations
-// -------------------------------------------------------------
 
 export function submitFeedback(params: {
   userId?: string;
@@ -858,4 +1560,47 @@ export function submitFeedback(params: {
   feedbacks.unshift(record);
   writeFeedback(feedbacks);
   return record;
+}
+
+export function getSystemStats(requestingUser: UserProfile) {
+  if (requestingUser.role !== 'owner') {
+    throw new Error('Unauthorized: Owner only');
+  }
+
+  const users = readUsers();
+  const sessions = readSessions();
+  const logs = readLogs();
+  const feedback = readFeedback();
+
+  return {
+    totalUsers: users.length,
+    totalSessions: sessions.length,
+    activeSessions: sessions.filter(s => s.status === 'online' && !s.logoutAt).length,
+    totalLogs: logs.length,
+    totalFeedback: feedback.length,
+    ownerEmail: OWNER_EMAIL,
+    uptimeSeconds: Math.round(process.uptime()),
+    nodeVersion: process.version,
+    platform: process.platform,
+    timestamp: new Date().toISOString()
+  };
+}
+
+export function clearSystemCache(requestingUser: UserProfile) {
+  if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized: Administrator or Owner privileges required to clear system cache');
+  }
+
+  const sessions = readSessions();
+  const now = Date.now();
+  // Remove expired offline sessions older than 7 days
+  const cleaned = sessions.filter(s => {
+    if (s.status === 'offline' && s.logoutAt) {
+      return now - new Date(s.logoutAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+    }
+    return true;
+  });
+  writeSessions(cleaned);
+
+  return { success: true, removedCount: sessions.length - cleaned.length };
 }

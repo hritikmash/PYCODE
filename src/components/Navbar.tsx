@@ -106,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }`}
                 title="Full screen code editor and explanations"
               >
-                Code Only
+                Code
               </button>
               <button
                 type="button"
@@ -118,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }`}
                 title="Full screen conceptual answer"
               >
-                Theory Only
+                Theory
               </button>
             </div>
 

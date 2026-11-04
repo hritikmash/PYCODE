@@ -13,6 +13,7 @@ import {
   Zap
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
 
 const AVATAR_OPTIONS = ['🐍', '⚡', '🚀', '🧠', '💻', '🤖', '🔮', '✨'];
 
@@ -54,16 +55,21 @@ export const AuthModal: React.FC = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setErrorMessage('Please fill in both email and password');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setErrorMessage(INVALID_EMAIL_ERROR);
+      return;
+    }
+    if (!password) {
+      setErrorMessage('Please enter your password');
       return;
     }
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const res = await login(email, password);
+    const res = await login(cleanEmail, password);
     setIsSubmitting(false);
-    if (!res.success) {
+    if (!res.success && !res.require2FA) {
       setErrorMessage(res.error || 'Failed to sign in');
     }
   };
@@ -74,8 +80,9 @@ export const AuthModal: React.FC = () => {
       setErrorMessage('Please enter your preferred name');
       return;
     }
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMessage('Please enter a valid email address');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setErrorMessage(INVALID_EMAIL_ERROR);
       return;
     }
     if (password.length < 6) {
@@ -121,6 +128,7 @@ export const AuthModal: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 select-none">
@@ -207,6 +215,7 @@ export const AuthModal: React.FC = () => {
 
         {/* Form Body */}
         <div className="p-6 space-y-4">
+
           {errorMessage && (
             <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />

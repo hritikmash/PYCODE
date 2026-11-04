@@ -11,6 +11,7 @@ import {
   ArrowRight,
   GitBranch,
   Calculator,
+  Cpu,
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
@@ -104,46 +105,46 @@ export const SubmittedCodeErrorHighlighter: React.FC<SubmittedCodeErrorHighlight
             </span>
           </div>
 
-          {/* Cyclomatic Complexity Badge */}
+          {/* Big-O Complexity Badge */}
           <div className="relative">
             <button
               type="button"
               onClick={() => setShowComplexityDetails(!showComplexityDetails)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-sans font-medium transition-all cursor-pointer shadow-xs ${complexity.badgeClass} hover:brightness-110 active:scale-95`}
-              title="Click to view Cyclomatic Complexity breakdown"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-mono font-medium transition-all cursor-pointer shadow-xs ${complexity.badgeClass} hover:brightness-110 active:scale-95`}
+              title="Click to view Big-O complexity breakdown"
             >
-              <Calculator className="w-3 h-3 shrink-0" />
-              <span>Complexity: <strong className="font-mono">{complexity.score}</strong> ({complexity.rating})</span>
+              <Cpu className="w-3 h-3 shrink-0" />
+              <span>Complexity: <strong className="font-semibold">{complexity.timeComplexity}</strong></span>
             </button>
 
             {/* Complexity Popover Breakdown */}
             {showComplexityDetails && (
               <div className="absolute left-0 top-full mt-1.5 z-40 w-64 p-3 rounded-xl bg-[#1e1f20] border border-[#37393b] shadow-2xl text-[11px] font-sans text-[#c4c7c5] space-y-2 animate-in fade-in zoom-in-95">
                 <div className="flex items-center justify-between border-b border-[#282a2c] pb-1.5 font-semibold text-white">
-                  <span>Cyclomatic Complexity</span>
-                  <span className={`px-1.5 py-0.2 rounded font-mono ${complexity.colorClass}`}>
-                    Score: {complexity.score}
+                  <span>Big-O Complexity</span>
+                  <span className={`px-2 py-0.5 rounded font-mono font-bold text-xs ${complexity.colorClass} bg-black/40 border border-white/10`}>
+                    {complexity.timeComplexity}
                   </span>
                 </div>
-                <p className="text-[11px] text-[#8e918f] leading-snug">
+                <p className="text-[11px] text-[#8e918f] leading-snug font-sans">
                   {complexity.description}
                 </p>
-                <div className="space-y-1 pt-1 text-[10px] font-mono border-t border-[#282a2c]">
+                <div className="space-y-1.5 pt-1 text-[11px] font-mono border-t border-[#282a2c]">
                   <div className="flex justify-between">
-                    <span>Branches (if/elif):</span>
-                    <span className="text-white">{complexity.breakdown.branches}</span>
+                    <span className="text-[#8e918f]">Time Complexity:</span>
+                    <span className="text-white font-bold">{complexity.timeComplexity}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Loops (for/while):</span>
-                    <span className="text-white">{complexity.breakdown.loops}</span>
+                    <span className="text-[#8e918f]">Space Complexity:</span>
+                    <span className="text-white font-bold">{complexity.spaceComplexity}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Logical Ops (and/or):</span>
-                    <span className="text-white">{complexity.breakdown.logicalOps}</span>
+                    <span className="text-[#8e918f]">Classification:</span>
+                    <span className="text-[#a8c7fa]">{complexity.rating}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Exceptions & Others:</span>
-                    <span className="text-white">{complexity.breakdown.exceptions + complexity.breakdown.others}</span>
+                    <span className="text-[#8e918f]">Max Loop Depth:</span>
+                    <span className="text-white">{complexity.breakdown.nestedLoopDepth}</span>
                   </div>
                 </div>
               </div>

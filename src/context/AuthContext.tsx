@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { signInWithGooglePopup, signOutFirebase } from '../firebase';
+import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
 
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -10,6 +11,7 @@ export interface UserProfile {
   avatar: string;
   role: UserRole;
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
+  twoFactorEnabled?: boolean;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -21,9 +23,17 @@ export interface SavedGoogleAccount {
   lastUsed: string;
 }
 
+export interface TwoFactorChallengeState {
+  tempToken: string;
+  email: string;
+  maskedEmail: string;
+  codePreview?: string;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
+  deviceId: string;
   isAuthenticated: boolean;
   isLoading: boolean;
   isOwner: boolean;
@@ -39,10 +49,21 @@ interface AuthContextType {
   isAdminModalOpen: boolean;
   openAdminModal: () => void;
   closeAdminModal: () => void;
+  isSettingsModalOpen: boolean;
+  settingsInitialTab: string;
+  openSettingsModal: (initialTab?: string) => void;
+  closeSettingsModal: () => void;
   isFeedbackModalOpen: boolean;
   openFeedbackModal: () => void;
   closeFeedbackModal: () => void;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  // 2FA Challenge State & Actions
+  is2FAModalOpen: boolean;
+  twoFactorChallenge: TwoFactorChallengeState | null;
+  verify2FACode: (code: string) => Promise<{ success: boolean; error?: string }>;
+  toggle2FA: (enable: boolean) => Promise<{ success: boolean; backupCodes?: string[]; error?: string }>;
+  cancel2FA: () => void;
+  // Standard Auth Actions
+  login: (email: string, password: string) => Promise<{ success: boolean; require2FA?: boolean; error?: string }>;
   register: (
     name: string,
     email: string,
@@ -51,8 +72,10 @@ interface AuthContextType {
     skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced'
   ) => Promise<{ success: boolean; error?: string }>;
   loginAsGuest: (name?: string) => Promise<{ success: boolean; error?: string }>;
-  loginWithGoogle: (email: string, name?: string, avatar?: string) => Promise<{ success: boolean; error?: string }>;
-  signInWithFirebaseGoogle: () => Promise<{ success: boolean; error?: string; isPopupBlocked?: boolean }>;
+  loginAsOwner: () => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: (email: string, name?: string, avatar?: string) => Promise<{ success: boolean; require2FA?: boolean; error?: string }>;
+  signInWithFirebaseGoogle: () => Promise<{ success: boolean; require2FA?: boolean; error?: string; isPopupBlocked?: boolean }>;
+  isEditorWorkshop: boolean;
   savedGoogleAccounts: SavedGoogleAccount[];
   removeSavedGoogleAccount: (email: string) => void;
   logout: () => Promise<void>;
@@ -66,6 +89,34 @@ const TOKEN_KEY = 'pycode_viewer_auth_token';
 const USER_KEY = 'pycode_viewer_profile';
 const HAS_REGISTERED_KEY = 'pycode_has_registered';
 const SAVED_ACCOUNTS_KEY = 'pycode_google_saved_accounts';
+const DEVICE_ID_KEY = 'pycode_client_device_id';
+
+export function getOrCreateDeviceId(): string {
+  if (typeof window === 'undefined') return 'server_device';
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'temp_device';
+  }
+}
+
+/**
+ * Detects whether the app is executing inside the AI Studio editor workshop preview
+ * (rendered inside an embedded editor iframe) vs accessed directly via standalone app link.
+ */
+export const isEditorWorkshop = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
@@ -85,7 +136,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [authModalTab, setAuthModalTab] = useState<'signin' | 'signup' | 'guest'>('signup');
   const [isGoogleWindowOpen, setIsGoogleWindowOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string>('general');
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState<boolean>(false);
+
+  // 2FA Challenge state
+  const [is2FAModalOpen, setIs2FAModalOpen] = useState<boolean>(false);
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallengeState | null>(null);
+
+  const deviceId = getOrCreateDeviceId();
+
   const [savedGoogleAccounts, setSavedGoogleAccounts] = useState<SavedGoogleAccount[]>(() => {
     try {
       const stored = localStorage.getItem(SAVED_ACCOUNTS_KEY);
@@ -106,21 +166,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const isOwner = user?.role === 'owner';
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
 
-  // Safe API helper to prevent 'Unexpected token < in JSON' SyntaxErrors if server or proxy returns HTML
+  // Safe API helper with automatic device-id tracking
   const safeFetchJson = async <T = any>(
     url: string,
     options?: RequestInit
   ): Promise<{ ok: boolean; status: number; data?: T; error?: string }> => {
     try {
-      const res = await fetch(url, options);
+      const headers = new Headers(options?.headers || {});
+      headers.set('x-device-id', deviceId);
+
+      const res = await fetch(url, { ...options, headers });
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data = await res.json();
         return { ok: res.ok, status: res.status, data, error: data?.error };
       }
-      // Non-JSON (e.g. HTML error or doctype)
-      const text = await res.text();
-      console.warn(`Server returned non-JSON (${res.status}) from ${url}:`, text.slice(0, 100));
       return {
         ok: false,
         status: res.status,
@@ -137,34 +197,67 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Session verification on mount (Restores session across refreshes without prompt)
+  // Session verification and environment-aware direct access
   useEffect(() => {
+    let isMounted = true;
+
     const checkSession = async () => {
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
-      try {
-        const result = await safeFetchJson<{ user: UserProfile }>('/api/auth/me', {
-          headers: {
-            Authorization: `Bearer ${token}`
+      const currentToken = localStorage.getItem(TOKEN_KEY);
+      if (currentToken) {
+        try {
+          const result = await safeFetchJson<{ user: UserProfile }>('/api/auth/me', {
+            headers: {
+              Authorization: `Bearer ${currentToken}`
+            }
+          });
+          if (isMounted) {
+            if (result.ok && result.data?.user) {
+              setUser(result.data.user);
+              setToken(currentToken);
+              localStorage.setItem(USER_KEY, JSON.stringify(result.data.user));
+              setIsLoading(false);
+              return;
+            } else {
+              handleClearAuth();
+            }
           }
-        });
-        if (result.ok && result.data?.user) {
-          setUser(result.data.user);
-          localStorage.setItem(USER_KEY, JSON.stringify(result.data.user));
-        } else {
-          handleClearAuth();
+        } catch (err) {
+          console.warn('Session check network warning:', err);
         }
-      } catch (err) {
-        console.warn('Session check network warning, keeping cached session:', err);
-      } finally {
+      }
+
+      // In AI Studio editor workshop, allow direct access to owner
+      if (isEditorWorkshop()) {
+        try {
+          const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/owner-instant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              entryRoute: window.location.pathname,
+              deviceId
+            })
+          });
+          if (isMounted && res.ok && res.data) {
+            handleSetAuth(res.data.token, res.data.user);
+            setIsLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.error('Owner direct workshop access error:', err);
+        }
+      }
+
+      if (isMounted) {
         setIsLoading(false);
       }
     };
 
     checkSession();
-  }, [token]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Periodic heartbeat for active multi-device tracking
   useEffect(() => {
@@ -173,16 +266,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const sendHeartbeat = () => {
       fetch('/api/auth/heartbeat', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'x-device-id': deviceId
+        }
       }).catch(() => {});
     };
 
-    // Send immediate heartbeat on session start
     sendHeartbeat();
     const timer = setInterval(sendHeartbeat, 25000);
 
     const handleBeforeUnload = () => {
-      navigator.sendBeacon?.('/api/auth/disconnect', JSON.stringify({ token }));
+      navigator.sendBeacon?.('/api/auth/disconnect', JSON.stringify({ token, deviceId }));
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
@@ -210,7 +305,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (tab) {
       setAuthModalTab(tab);
     } else {
-      // Default: If user has registered before, offer Sign In & Guest; else Sign Up & Guest
       setAuthModalTab(hasRegisteredBefore ? 'signin' : 'signup');
     }
     setIsAuthModalOpen(true);
@@ -224,8 +318,80 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const openAdminModal = () => setIsAdminModalOpen(true);
   const closeAdminModal = () => setIsAdminModalOpen(false);
 
+  const openSettingsModal = (initialTab: string = 'general') => {
+    setSettingsInitialTab(initialTab);
+    setIsSettingsModalOpen(true);
+  };
+  const closeSettingsModal = () => setIsSettingsModalOpen(false);
+
   const openFeedbackModal = () => setIsFeedbackModalOpen(true);
   const closeFeedbackModal = () => setIsFeedbackModalOpen(false);
+
+  const cancel2FA = () => {
+    setIs2FAModalOpen(false);
+    setTwoFactorChallenge(null);
+  };
+
+  // Verify 2FA One-Time Code
+  const verify2FACode = async (code: string) => {
+    if (!twoFactorChallenge) {
+      return { success: false, error: 'No active verification session' };
+    }
+    const cleanCode = code.trim();
+    if (!cleanCode) {
+      return { success: false, error: 'Please enter verification code' };
+    }
+
+    const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tempToken: twoFactorChallenge.tempToken,
+        email: twoFactorChallenge.email,
+        code: cleanCode,
+        deviceId
+      })
+    });
+
+    if (!res.ok || !res.data) {
+      return { success: false, error: res.error || 'Invalid verification code' };
+    }
+
+    handleSetAuth(res.data.token, res.data.user);
+    localStorage.setItem(HAS_REGISTERED_KEY, 'true');
+    setHasRegisteredBefore(true);
+    setIs2FAModalOpen(false);
+    setTwoFactorChallenge(null);
+    closeAuthModal();
+    closeGoogleWindow();
+    return { success: true };
+  };
+
+  // Toggle 2FA in settings
+  const toggle2FA = async (enable: boolean) => {
+    if (!token) return { success: false, error: 'Not authenticated' };
+
+    const res = await safeFetchJson<{ success: boolean; twoFactorEnabled: boolean; backupCodes?: string[] }>('/api/auth/2fa/toggle', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}` 
+      },
+      body: JSON.stringify({ enable })
+    });
+
+    if (!res.ok || !res.data) {
+      return { success: false, error: res.error || 'Failed to update 2FA' };
+    }
+
+    if (user) {
+      const updated = { ...user, twoFactorEnabled: res.data.twoFactorEnabled };
+      setUser(updated);
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+    }
+
+    return { success: true, backupCodes: res.data.backupCodes };
+  };
 
   const register = async (
     name: string,
@@ -234,21 +400,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     avatar?: string,
     skillLevel: 'Beginner' | 'Intermediate' | 'Advanced' = 'Beginner'
   ) => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Strict Rule 2: Email validation
+    if (!isValidEmail(cleanEmail)) {
+      return { success: false, error: INVALID_EMAIL_ERROR };
+    }
+
     const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.trim(),
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         password,
         avatar,
         skillLevel,
-        entryRoute: window.location.pathname
+        entryRoute: window.location.pathname,
+        deviceId
       })
     });
+
     if (!res.ok || !res.data) {
       return { success: false, error: res.error || 'Registration failed' };
     }
+
     handleSetAuth(res.data.token, res.data.user);
     localStorage.setItem(HAS_REGISTERED_KEY, 'true');
     setHasRegisteredBefore(true);
@@ -257,23 +433,57 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const login = async (email: string, password: string) => {
-    const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/login', {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Strict Rule 2: Email validation
+    if (!isValidEmail(cleanEmail)) {
+      return { success: false, error: INVALID_EMAIL_ERROR };
+    }
+
+    const res = await safeFetchJson<{
+      user?: UserProfile;
+      token?: string;
+      require2FA?: boolean;
+      tempToken?: string;
+      email?: string;
+      maskedEmail?: string;
+      codePreview?: string;
+    }>('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         password,
-        entryRoute: window.location.pathname
+        entryRoute: window.location.pathname,
+        deviceId
       })
     });
+
     if (!res.ok || !res.data) {
-      return { success: false, error: res.error || 'Invalid credentials' };
+      return { success: false, error: res.error || 'Invalid email or password' };
     }
-    handleSetAuth(res.data.token, res.data.user);
-    localStorage.setItem(HAS_REGISTERED_KEY, 'true');
-    setHasRegisteredBefore(true);
-    closeAuthModal();
-    return { success: true };
+
+    // 2FA Challenge intercepted
+    if (res.data.require2FA && res.data.tempToken) {
+      setTwoFactorChallenge({
+        tempToken: res.data.tempToken,
+        email: res.data.email || cleanEmail,
+        maskedEmail: res.data.maskedEmail || cleanEmail,
+        codePreview: res.data.codePreview
+      });
+      setIs2FAModalOpen(true);
+      return { success: false, require2FA: true };
+    }
+
+    if (res.data.token && res.data.user) {
+      handleSetAuth(res.data.token, res.data.user);
+      localStorage.setItem(HAS_REGISTERED_KEY, 'true');
+      setHasRegisteredBefore(true);
+      closeAuthModal();
+      return { success: true };
+    }
+
+    return { success: false, error: 'Sign in failed' };
   };
 
   const loginAsGuest = async (name?: string) => {
@@ -282,7 +492,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name?.trim() || undefined,
-        entryRoute: window.location.pathname
+        entryRoute: window.location.pathname,
+        deviceId
       })
     });
     if (!res.ok || !res.data) {
@@ -293,20 +504,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true };
   };
 
+  const loginAsOwner = async () => {
+    const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/owner-instant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryRoute: window.location.pathname,
+        deviceId
+      })
+    });
+    if (!res.ok || !res.data) {
+      return { success: false, error: res.error || 'Owner sign-in failed' };
+    }
+    handleSetAuth(res.data.token, res.data.user);
+    closeAuthModal();
+    return { success: true };
+  };
+
   const loginWithGoogle = async (email: string, name?: string, avatar?: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      return { success: false, error: 'Please enter your own Google email address' };
+
+    // Strict Rule 2: Email validation
+    if (!isValidEmail(cleanEmail)) {
+      return { success: false, error: INVALID_EMAIL_ERROR };
     }
 
-    const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/google', {
+    const res = await safeFetchJson<{
+      user?: UserProfile;
+      token?: string;
+      require2FA?: boolean;
+      tempToken?: string;
+      email?: string;
+      maskedEmail?: string;
+      codePreview?: string;
+    }>('/api/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: cleanEmail,
         name: name?.trim() || undefined,
         avatar: avatar || undefined,
-        entryRoute: window.location.pathname
+        entryRoute: window.location.pathname,
+        deviceId
       })
     });
 
@@ -314,53 +553,69 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, error: res.error || 'Google sign-in failed' };
     }
 
-    handleSetAuth(res.data.token, res.data.user);
-    localStorage.setItem(HAS_REGISTERED_KEY, 'true');
-    setHasRegisteredBefore(true);
+    // 2FA Challenge intercepted
+    if (res.data.require2FA && res.data.tempToken) {
+      setTwoFactorChallenge({
+        tempToken: res.data.tempToken,
+        email: res.data.email || cleanEmail,
+        maskedEmail: res.data.maskedEmail || cleanEmail,
+        codePreview: res.data.codePreview
+      });
+      setIs2FAModalOpen(true);
+      return { success: false, require2FA: true };
+    }
 
-    // Save to remembered accounts on this device
-    const accountEntry: SavedGoogleAccount = {
-      email: res.data.user.email,
-      name: res.data.user.name,
-      avatar: res.data.user.avatar,
-      lastUsed: new Date().toISOString()
-    };
-    setSavedGoogleAccounts(prev => {
-      const filtered = prev.filter(a => a.email.toLowerCase() !== accountEntry.email.toLowerCase());
-      const updated = [accountEntry, ...filtered].slice(0, 5);
-      localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(updated));
-      return updated;
-    });
+    if (res.data.token && res.data.user) {
+      handleSetAuth(res.data.token, res.data.user);
+      localStorage.setItem(HAS_REGISTERED_KEY, 'true');
+      setHasRegisteredBefore(true);
 
-    closeAuthModal();
-    closeGoogleWindow();
-    return { success: true };
+      const accountEntry: SavedGoogleAccount = {
+        email: res.data.user.email,
+        name: res.data.user.name,
+        avatar: res.data.user.avatar,
+        lastUsed: new Date().toISOString()
+      };
+      setSavedGoogleAccounts(prev => {
+        const filtered = prev.filter(a => a.email.toLowerCase() !== accountEntry.email.toLowerCase());
+        const updated = [accountEntry, ...filtered].slice(0, 5);
+        localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(updated));
+        return updated;
+      });
+
+      closeAuthModal();
+      closeGoogleWindow();
+      return { success: true };
+    }
+
+    return { success: false, error: 'Google sign-in failed' };
   };
 
-  /**
-   * Google Sign-In with official Account Chooser.
-   * If popup is restricted in the iframe, automatically and smoothly opens the separate
-   * dedicated Google login window so user can sign in with their own email.
-   */
   const signInWithFirebaseGoogle = async () => {
     try {
       const result = await signInWithGooglePopup();
-      if (!result.success || !result.user) {
-        // As requested: "if user select google method then redirect them to separate login window there they will login from their own email"
-        openGoogleWindow();
-        return {
-          success: true,
-          isPopupBlocked: true
+      if (!result.success || !result.user?.email) {
+        return { 
+          success: false, 
+          error: result.error || 'Google sign-in did not provide an email address',
+          isPopupBlocked: result.isPopupBlocked
         };
       }
-
-      const { email, displayName, photoURL } = result.user;
-      return await loginWithGoogle(email, displayName, photoURL);
-    } catch {
-      openGoogleWindow();
+      return await loginWithGoogle(
+        result.user.email,
+        result.user.displayName || undefined,
+        result.user.photoURL || undefined
+      );
+    } catch (err: any) {
+      const errStr = (err?.message || '').toLowerCase();
+      const isBlocked = err?.code === 'auth/popup-blocked' || 
+                        errStr.includes('popup') || 
+                        errStr.includes('cancelled') ||
+                        errStr.includes('closed-by-user');
       return {
-        success: true,
-        isPopupBlocked: true
+        success: false,
+        error: err?.message || 'Google authentication popup was not completed',
+        isPopupBlocked: isBlocked
       };
     }
   };
@@ -370,7 +625,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (token) {
         await fetch('/api/auth/logout', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'x-device-id': deviceId
+          }
         });
       }
       await signOutFirebase();
@@ -386,7 +644,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (token) {
         await fetch('/api/auth/logout-all', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'x-device-id': deviceId
+          }
         });
       }
       await signOutFirebase();
@@ -424,6 +685,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       value={{
         user,
         token,
+        deviceId,
         isAuthenticated: Boolean(user),
         isLoading,
         isOwner,
@@ -439,14 +701,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isAdminModalOpen,
         openAdminModal,
         closeAdminModal,
+        isSettingsModalOpen,
+        settingsInitialTab,
+        openSettingsModal,
+        closeSettingsModal,
         isFeedbackModalOpen,
         openFeedbackModal,
         closeFeedbackModal,
+        // 2FA
+        is2FAModalOpen,
+        twoFactorChallenge,
+        verify2FACode,
+        toggle2FA,
+        cancel2FA,
+        // Methods
         login,
         register,
         loginAsGuest,
+        loginAsOwner,
         loginWithGoogle,
         signInWithFirebaseGoogle,
+        isEditorWorkshop: isEditorWorkshop(),
         savedGoogleAccounts,
         removeSavedGoogleAccount,
         logout,

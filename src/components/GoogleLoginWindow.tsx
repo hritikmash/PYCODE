@@ -15,6 +15,7 @@ import {
   Check
 } from 'lucide-react';
 import { useAuth, SavedGoogleAccount } from '../context/AuthContext';
+import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
 
 const OWNER_EMAIL = 'hritikyadav1612@gmail.com';
 
@@ -81,15 +82,8 @@ export const GoogleLoginWindow: React.FC = () => {
     setError(null);
 
     const cleanEmail = googleEmail.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      setError('Please enter a valid Google email address (e.g. yourname@gmail.com)');
-      return;
-    }
-
-    // STRICT OWNER RULE: Users cannot manually log in as the owner
-    // If user is accessing from shared link, only the owner can have owner email
-    if (cleanEmail === OWNER_EMAIL.toLowerCase()) {
-      setError('This email is reserved for the platform owner. Please sign in with your own Google email address.');
+    if (!isValidEmail(cleanEmail)) {
+      setError(INVALID_EMAIL_ERROR);
       return;
     }
 

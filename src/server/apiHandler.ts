@@ -6,6 +6,7 @@ import {
   loginUser,
   loginGuest,
   loginGoogleUser,
+  loginOwnerDirect,
   verifySession,
   revokeSession,
   revokeSessionById,
@@ -14,9 +15,22 @@ import {
   disconnectSession,
   updateUserProfile,
   updateUserRole,
+  appointAdministrator,
+  revokeAdministrator,
+  readAppConfig,
+  updateAppConfig,
+  type AppConfig,
+  deleteUserAccount,
   getAdminOverview,
   getAdminSessions,
   getAllUsers,
+  getOwnerUniqueDevices,
+  revokeDeviceSessions,
+  enableTwoFactor,
+  disableTwoFactor,
+  verifyTwoFactorChallenge,
+  getSystemStats,
+  clearSystemCache,
   submitFeedback,
   readFeedback,
   parseUserAgent,
@@ -24,6 +38,11 @@ import {
   type UserProfile,
   OWNER_EMAIL
 } from './authService.ts';
+import {
+  broadcastAdminUpdate,
+  broadcastSessionRevocation,
+  broadcastUserLogout
+} from './websocketHandler.ts';
 
 export const apiRouter = express.Router();
 
@@ -43,8 +62,10 @@ function getClientInfo(req: Request): ClientInfo {
   const ua = req.headers['user-agent'] || '';
   const parsed = parseUserAgent(ua);
   const entryRoute = (req.headers['x-entry-route'] as string) || req.body?.entryRoute || req.path || '/';
+  const deviceId = (req.headers['x-device-id'] as string) || req.body?.deviceId || undefined;
 
   return {
+    deviceId: typeof deviceId === 'string' ? deviceId.trim().slice(0, 64) : undefined,
     deviceType: parsed.deviceType,
     browser: parsed.browser,
     os: parsed.os,
@@ -107,7 +128,8 @@ apiRouter.post('/auth/register', (req: Request, res: Response) => {
     const result = registerUser({ email, password, name, avatar, skillLevel, clientInfo });
     return res.status(201).json(result);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message || 'Registration failed' });
+    const status = err.message === 'INVALID EMAIL!' ? 400 : 400;
+    return res.status(status).json({ error: err.message || 'Registration failed' });
   }
 });
 
@@ -119,35 +141,74 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     const result = loginUser({ email, password, clientInfo });
     return res.json(result);
   } catch (err: any) {
-    return res.status(401).json({ error: err.message || 'Invalid email or password' });
+    const status = err.message === 'INVALID EMAIL!' ? 400 : 401;
+    return res.status(status).json({ error: err.message || 'Invalid email or password' });
   }
 });
 
-// Google Authentication (User's own account)
+// Google Authentication (Supports both owner and regular users across all devices)
 apiRouter.post('/auth/google', (req: Request, res: Response) => {
   try {
     const { email, name, avatar } = req.body;
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return res.status(400).json({ error: 'Please enter your own valid Google email address' });
-    }
-    const cleanEmail = email.trim().toLowerCase();
-    // SPEC RULE: Users cannot sign in with the owner email via public Google sign-in
-    if (cleanEmail === OWNER_EMAIL.toLowerCase()) {
-      return res.status(403).json({
-        error: 'This email is reserved for the platform owner. Please sign in with your own Google email address.'
-      });
-    }
-
     const clientInfo = getClientInfo(req);
-    const result = loginGoogleUser({ email: cleanEmail, name, avatar, clientInfo });
+    const result = loginGoogleUser({ email, name, avatar, clientInfo });
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Google sign-in failed' });
+    const status = err.message === 'INVALID EMAIL!' ? 400 : 500;
+    return res.status(status).json({ error: err.message || 'Google sign-in failed' });
   }
 });
 
 apiRouter.all('/auth/google', (_req: Request, res: Response) => {
   return res.status(405).json({ error: 'Method not allowed. Use POST /api/auth/google' });
+});
+
+// Two-Step Verification: Challenge verification
+apiRouter.post('/auth/2fa/verify', (req: Request, res: Response) => {
+  try {
+    const { tempToken, code, email } = req.body;
+    if (!tempToken || !code) {
+      return res.status(400).json({ error: 'Verification code is required' });
+    }
+    const result = verifyTwoFactorChallenge({ tempToken, code, email });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Verification failed' });
+  }
+});
+
+// Two-Step Verification: Toggle enable/disable
+apiRouter.post('/auth/2fa/toggle', requireAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as UserProfile;
+    const { enable } = req.body;
+    if (enable) {
+      const { backupCodes } = enableTwoFactor(user.id);
+      return res.json({ success: true, twoFactorEnabled: true, backupCodes });
+    } else {
+      disableTwoFactor(user.id);
+      return res.json({ success: true, twoFactorEnabled: false });
+    }
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to update 2FA' });
+  }
+});
+
+// Two-Step Verification: Status query
+apiRouter.get('/auth/2fa/status', requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  return res.json({ twoFactorEnabled: Boolean(user.twoFactorEnabled) });
+});
+
+// Instant Owner Login (Multi-device enabled, zero authentication barrier)
+apiRouter.post('/auth/owner-instant', (req: Request, res: Response) => {
+  try {
+    const clientInfo = getClientInfo(req);
+    const result = loginOwnerDirect(clientInfo);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Owner session failed' });
+  }
 });
 
 // Guest Instant Sign-in
@@ -193,10 +254,12 @@ apiRouter.post('/auth/logout', (req: Request, res: Response) => {
 apiRouter.post('/auth/logout-all', requireAuth, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   revokeAllUserSessions(user.id);
+  broadcastUserLogout(user.id);
+  broadcastAdminUpdate('session:all_revoked', { userId: user.id });
   return res.json({ success: true });
 });
 
-// Update Profile (Strictly sanitized: users CANNOT modify roles or emails here!)
+// Update Profile
 apiRouter.patch('/auth/profile', requireAuth, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   try {
@@ -212,14 +275,14 @@ apiRouter.patch('/auth/profile', requireAuth, (req: Request, res: Response) => {
 // Protected Live Admin Monitoring & Role-Based Access Endpoints
 // ---------------------------------------------------------------------------
 
-// Live Session Overview Metrics
+// Overview Dashboard metrics
 apiRouter.get('/admin/overview', requireAdmin, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   try {
     const overview = getAdminOverview(user);
     return res.json(overview);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Failed to fetch admin overview' });
+    return res.status(500).json({ error: err.message || 'Failed to fetch overview' });
   }
 });
 
@@ -228,16 +291,13 @@ apiRouter.get('/admin/sessions', requireAdmin, (req: Request, res: Response) => 
   const user = (req as any).user as UserProfile;
   try {
     const sessions = getAdminSessions(user);
-    return res.json({
-      sessions,
-      totalCount: sessions.length
-    });
+    return res.json({ sessions });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Failed to fetch sessions' });
   }
 });
 
-// User Management (List users)
+// User Directory
 apiRouter.get('/admin/users', requireAdmin, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   try {
@@ -248,7 +308,7 @@ apiRouter.get('/admin/users', requireAdmin, (req: Request, res: Response) => {
   }
 });
 
-// Role Assignment (Only owner/admin can call, ordinary users rejected with 403)
+// Role Assignment (Only owner/admin can call)
 apiRouter.patch('/admin/users/:userId/role', requireAdmin, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   const { userId } = req.params;
@@ -266,15 +326,122 @@ apiRouter.patch('/admin/users/:userId/role', requireAdmin, (req: Request, res: R
   }
 });
 
+// ---------------------------------------------------------------------------
+// App Configuration & Updates (Owner & Administrators have edit permissions)
+// ---------------------------------------------------------------------------
+
+// Read App Configuration (Public/Authenticated)
+apiRouter.get('/app/config', (_req: Request, res: Response) => {
+  try {
+    const config = readAppConfig();
+    return res.json({ config });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to read app configuration' });
+  }
+});
+
+// Update App Configuration (Owner and Administrators only)
+apiRouter.patch('/app/config', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  try {
+    const updated = updateAppConfig(req.body, user);
+    broadcastAdminUpdate('app:config_updated', { config: updated });
+    return res.json({ success: true, config: updated });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to update app configuration' });
+  }
+});
+
+// Owner Exclusive: Appoint User as Administrator (Owner is always root)
+apiRouter.post('/owner/administrators', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  if (user.role !== 'owner') {
+    return res.status(403).json({ error: 'Forbidden: Only the Owner can appoint administrators' });
+  }
+
+  const { email, userId } = req.body;
+  if (!email && !userId) {
+    return res.status(400).json({ error: 'User ID or valid email is required to appoint an administrator' });
+  }
+
+  try {
+    const appointedUser = appointAdministrator({ email, userId }, user);
+    broadcastAdminUpdate('admin:appointed', { user: appointedUser });
+    return res.status(201).json({ success: true, user: appointedUser });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to appoint administrator' });
+  }
+});
+
+// Owner Exclusive: Revoke Administrator Privileges
+apiRouter.delete('/owner/administrators/:userId', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  if (user.role !== 'owner') {
+    return res.status(403).json({ error: 'Forbidden: Only the Owner can revoke administrator privileges' });
+  }
+
+  const { userId } = req.params;
+  try {
+    const demotedUser = revokeAdministrator(userId, user);
+    broadcastAdminUpdate('admin:revoked', { userId, user: demotedUser });
+    return res.json({ success: true, user: demotedUser });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to revoke administrator' });
+  }
+});
+
+// Delete user account (Owner only)
+apiRouter.delete('/admin/users/:userId', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const { userId } = req.params;
+  try {
+    deleteUserAccount(userId, user);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to delete user' });
+  }
+});
+
 // Revoke Session by ID
 apiRouter.delete('/admin/sessions/:sessionId', requireAdmin, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   const { sessionId } = req.params;
   try {
     const success = revokeSessionById(sessionId, user);
+    if (success) {
+      broadcastSessionRevocation(sessionId);
+      broadcastAdminUpdate('session:revoked', { sessionId });
+    }
     return res.json({ success });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Failed to revoke session' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Owner Console: Unique Devices & Session History (Rule 6 - No Duplicates)
+// ---------------------------------------------------------------------------
+
+apiRouter.get('/owner/devices', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const currentDeviceId = (req.headers['x-device-id'] as string) || (req.query.deviceId as string);
+  try {
+    const devices = getOwnerUniqueDevices(user, currentDeviceId);
+    return res.json({ devices, totalCount: devices.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch devices' });
+  }
+});
+
+apiRouter.delete('/owner/devices/:deviceId', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const { deviceId } = req.params;
+  try {
+    revokeDeviceSessions(deviceId, user);
+    broadcastAdminUpdate('device:revoked', { deviceId });
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to revoke device' });
   }
 });
 
@@ -282,12 +449,34 @@ apiRouter.delete('/admin/sessions/:sessionId', requireAdmin, (req: Request, res:
 apiRouter.get('/owner/viewer-logins', requireAdmin, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   const sessions = getAdminSessions(user);
-  const nonOwnerSessions = sessions.filter(s => s.userEmail.toLowerCase() !== OWNER_EMAIL);
+  const nonOwnerSessions = sessions.filter(s => (s.userEmail || '').toLowerCase() !== OWNER_EMAIL);
   return res.json({
     ownerEmail: OWNER_EMAIL,
     logins: nonOwnerSessions,
     totalCount: nonOwnerSessions.length
   });
+});
+
+// System Stats (Owner only)
+apiRouter.get('/admin/system/stats', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  try {
+    const stats = getSystemStats(user);
+    return res.json(stats);
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message });
+  }
+});
+
+// Clear System Cache (Owner only)
+apiRouter.post('/admin/system/clear-cache', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  try {
+    const result = clearSystemCache(user);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(403).json({ error: err.message });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -322,6 +511,8 @@ apiRouter.post('/feedback', (req: Request, res: Response) => {
       addSuggestions,
       comments
     });
+
+    broadcastAdminUpdate('feedback:new', { feedback });
 
     return res.status(201).json({ success: true, feedback });
   } catch (err: any) {
@@ -381,8 +572,9 @@ apiRouter.post('/analyze', async (req: Request, res: Response) => {
       attachedDocs,
       chatHistory
     } as any);
+
     return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Failed to analyze code' });
+    return res.status(500).json({ error: error?.message || 'Analysis failed' });
   }
 });

@@ -3,43 +3,52 @@
     "token": "7a9f88a4058313da0ba3432c230e4a5e1e74b22e2515095649b5b80c063260b0",
     "userId": "usr_viewer_default",
     "createdAt": "2026-10-28T10:01:28.326Z",
-    "expiresAt": 1795773688326
+    "expiresAt": 1795773688326,
+    "id": "sess_legacy_0_7a9f88a4"
   },
   {
     "token": "dae6c6fe11256335f16b8d6faac0e6c87d9ffb1516ef7d6cd5f194425af9416a",
     "userId": "usr_1793181694373_4029ab27",
     "createdAt": "2026-10-28T10:01:34.373Z",
-    "expiresAt": 1795773694373
+    "expiresAt": 1795773694373,
+    "id": "sess_legacy_1_dae6c6fe"
   },
   {
     "token": "028e964738d677e91b65c902f34d93b40b3114586d80d5274e669e26db1f2650",
     "userId": "usr_google_1793251226075_c9105760",
     "createdAt": "2026-10-29T05:20:26.076Z",
-    "expiresAt": 1795843226076
+    "expiresAt": 1795843226076,
+    "id": "sess_legacy_2_028e9647"
   },
   {
     "token": "015fb048bb2a692bd5a79bcfd24316d7cf0f1b8c96f51b0d8c9ed032329943e5",
     "userId": "usr_google_1793251226075_c9105760",
     "createdAt": "2026-10-29T07:27:33.435Z",
-    "expiresAt": 1795850853435
+    "expiresAt": 1795850853435,
+    "id": "sess_legacy_3_015fb048"
   },
   {
     "token": "c5907486b684239f5cdc65249842df04bcdc7d2c6a81cd186baf845e4f1013da",
     "userId": "usr_guest_1793258861322_6042",
     "createdAt": "2026-10-29T07:27:41.323Z",
-    "expiresAt": 1795850861323
+    "expiresAt": 1793520547019,
+    "status": "offline",
+    "logoutAt": "2026-11-01T08:09:08.019Z",
+    "id": "sess_legacy_4_c5907486"
   },
   {
     "token": "ca3b29f8d93302ff49cc4bf9b57f0a5f50faaacb2615ad860c6e78b45d41b258",
     "userId": "usr_1793258875800_95444249",
     "createdAt": "2026-10-29T07:27:55.800Z",
-    "expiresAt": 1795850875800
+    "expiresAt": 1795850875800,
+    "id": "sess_legacy_5_ca3b29f8"
   },
   {
     "token": "46b5cbbd79d508a20b542450da3248f8be0e1b9fb85703ce109758284b3ced48",
     "userId": "usr_google_1793261832756_ce69a39b",
     "createdAt": "2026-10-29T08:17:12.757Z",
-    "expiresAt": 1795853832757
+    "expiresAt": 1795853832757,
+    "id": "sess_legacy_6_46b5cbbd"
   },
   {
     "id": "sess_mvv9n7ar_3927dc",
@@ -260,6 +269,149 @@
     "browser": "Browser",
     "os": "OS",
     "entryRoute": "/auth/google",
+    "status": "online"
+  },
+  {
+    "id": "sess_mvx1kceg_df30af",
+    "token": "1473119514afb9c9212832bfc28a628f2753f51b34a1e313fa1a51a669198847",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "google",
+    "createdAt": "2026-10-31T23:37:55.144Z",
+    "lastActivityAt": "2026-10-31T23:37:55.144Z",
+    "expiresAt": 1796081875144,
+    "deviceType": "desktop",
+    "browser": "Chrome",
+    "os": "macOS",
+    "entryRoute": "/auth/google",
+    "status": "online"
+  },
+  {
+    "id": "sess_mvx1kg8p_b11b63",
+    "token": "c6674b8f4539b5b1b5bc3edcb920cd178ee9706d962bc3b99f75b8617ebab42f",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "google",
+    "createdAt": "2026-10-31T23:38:00.121Z",
+    "lastActivityAt": "2026-10-31T23:38:00.121Z",
+    "expiresAt": 1796081880121,
+    "deviceType": "desktop",
+    "browser": "Chrome",
+    "os": "macOS",
+    "entryRoute": "/auth/google",
+    "status": "online"
+  },
+  {
+    "id": "sess_mvx1kjzu_43fca6",
+    "token": "3a86831edfcd630a8d68ee5317de0097ab6fd9b7bc64d908afb5ab348d965493",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "registered",
+    "createdAt": "2026-10-31T23:38:04.986Z",
+    "lastActivityAt": "2026-10-31T23:38:04.986Z",
+    "expiresAt": 1796081884986,
+    "deviceType": "mobile",
+    "browser": "Safari",
+    "os": "macOS",
+    "entryRoute": "/auth/owner-instant",
+    "status": "online"
+  },
+  {
+    "id": "sess_mvx239zk_10f109",
+    "token": "ebc3800392f5dd0d96425f1522c55e108a6b0cbb34ae8f9360dee12cebb43327",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "registered",
+    "createdAt": "2026-10-31T23:52:38.480Z",
+    "lastActivityAt": "2026-10-31T23:52:38.480Z",
+    "expiresAt": 1796082758480,
+    "deviceType": "desktop",
+    "browser": "Browser",
+    "os": "OS",
+    "entryRoute": "/test",
+    "status": "online"
+  },
+  {
+    "id": "sess_mvx23fmt_e6f30e",
+    "token": "fed554f28720ecae94872c8692ec3e486345b290b30dd277e41929096e66744a",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "google",
+    "createdAt": "2026-10-31T23:52:45.797Z",
+    "lastActivityAt": "2026-10-31T23:52:45.797Z",
+    "expiresAt": 1796082765797,
+    "deviceType": "desktop",
+    "browser": "Browser",
+    "os": "OS",
+    "entryRoute": "/auth/google",
+    "status": "online"
+  },
+  {
+    "id": "sess_mvxjse4p_d12f54",
+    "token": "7deb76f6ff095fd652823fcd3954710a91db8f6a1926791bbebc5cb3c5d4cbbe",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "google",
+    "createdAt": "2026-11-01T08:08:03.721Z",
+    "lastActivityAt": "2026-11-01T08:08:03.721Z",
+    "expiresAt": 1793520540314,
+    "deviceId": "dev_mobile_pixel_001",
+    "deviceName": "Desktop • Chrome",
+    "deviceType": "desktop",
+    "browser": "Chrome",
+    "os": "Desktop",
+    "entryRoute": "/auth/google",
+    "status": "offline",
+    "logoutAt": "2026-11-01T08:09:01.314Z"
+  },
+  {
+    "id": "sess_mvxjt59c_37ebc3",
+    "token": "2082c52ef550e75e9a03c18581196fc200d3fbe5276661804dc01da941a37457",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "google",
+    "createdAt": "2026-11-01T08:08:38.880Z",
+    "lastActivityAt": "2026-11-01T08:08:38.880Z",
+    "expiresAt": 1796112518880,
+    "deviceId": "dev_c46f38ab8dc0",
+    "deviceName": "Desktop • Chrome",
+    "deviceType": "desktop",
+    "browser": "Chrome",
+    "os": "Desktop",
+    "entryRoute": "/auth/google",
+    "status": "online"
+  },
+  {
+    "id": "sess_mw1rq3h8_a865b9",
+    "token": "c705a54998fe9db645d63732d2ae82e43ea7f8c5fb7dee9b5d084e72187eecda",
+    "userId": "usr_google_1793251226075_c9105760",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "userName": "Hritik",
+    "role": "owner",
+    "accountType": "registered",
+    "createdAt": "2026-11-04T07:01:18.236Z",
+    "lastActivityAt": "2026-11-04T07:01:18.236Z",
+    "expiresAt": 1796367678236,
+    "deviceId": "dev_c46f38ab8dc0",
+    "deviceName": "Desktop • Chrome",
+    "deviceType": "desktop",
+    "browser": "Chrome",
+    "os": "Desktop",
+    "entryRoute": "/auth/owner-instant",
     "status": "online"
   }
 ]

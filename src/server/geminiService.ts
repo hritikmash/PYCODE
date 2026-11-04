@@ -17,7 +17,6 @@ function getGenAI(): GoogleGenAI {
         headers: {
           'User-Agent': 'aistudio-build',
         },
-        timeout: 4000,
       },
     });
   }
@@ -331,15 +330,15 @@ export async function analyzePythonSubmission(params: {
   }
 
   // Determine active mode
-  let mode: AnalysisMode = 'both';
-  if (params.preferredMode && params.preferredMode !== 'both') {
-    mode = params.preferredMode;
-  } else if (code && !question) {
-    mode = 'code_only';
-  } else if (!code && question) {
-    mode = 'theory_only';
-  } else {
-    mode = 'both';
+  let mode: AnalysisMode = params.preferredMode || 'both';
+  if (!params.preferredMode) {
+    if (code && !question) {
+      mode = 'code_only';
+    } else if (!code && question) {
+      mode = 'theory_only';
+    } else {
+      mode = 'both';
+    }
   }
 
   // Concurrent Execution: Run Python 3.10 interpreter verification in parallel for ground truth
@@ -617,15 +616,20 @@ Ensure all JSON values are valid, complete, and educational.
             required: ['mode', 'summary', 'errors', 'correctedCode', 'originalCode', 'whatChanged', 'stepByStepBreakdown', 'expectedOutput', 'flowchart']
           }
         }
-      });
+        });
 
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout on ${targetModel}`)), 2500)
-        );
+        let timer: NodeJS.Timeout | null = null;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Timeout on ${targetModel}`)), 20000);
+        });
 
-        const response: any = await Promise.race([generatePromise, timeoutPromise]);
-        responseText = response.text || '{}';
-        if (responseText && responseText.trim().startsWith('{')) break;
+        try {
+          const response: any = await Promise.race([generatePromise, timeoutPromise]);
+          responseText = response.text || '{}';
+          if (responseText && responseText.trim().startsWith('{')) break;
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       } catch (err: unknown) {
         lastErr = err;
         console.warn(`Model ${targetModel} attempt failed, trying fallback:`, err);

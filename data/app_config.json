@@ -1,0 +1,24 @@
+{
+  "appTitle": "Pycode",
+  "appSubtitle": "Python Theory & Code Intelligence Platform",
+  "announcementBanner": {
+    "enabled": true,
+    "message": "Welcome to Pycode! Administrator delegated edit rights active.",
+    "type": "success"
+  },
+  "defaultEngine": "gemini-3.8-flash",
+  "defaultMode": "both",
+  "features": {
+    "sandboxExecution": true,
+    "interactiveFlowcharts": true,
+    "variableExecutionTrace": true,
+    "autoRunCode": true
+  },
+  "updatedAt": "2026-11-04T07:01:18.318Z",
+  "updatedBy": {
+    "userId": "usr_google_1793251226075_c9105760",
+    "userName": "Hritik",
+    "userEmail": "hritikyadav1612@gmail.com",
+    "role": "owner"
+  }
+}

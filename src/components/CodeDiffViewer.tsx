@@ -225,13 +225,13 @@ export const CodeDiffViewer: React.FC<CodeDiffViewerProps> = ({
               </div>
             )}
 
-            {/* Cyclomatic Complexity Badge */}
-            <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-medium shadow-xs ${origComplexity.badgeClass}`}>
-              <Calculator className="w-3.5 h-3.5 shrink-0" />
-              <span>Complexity: <strong className="font-mono">{origComplexity.score}</strong> ({origComplexity.rating})</span>
-              {corrComplexity.score !== origComplexity.score && (
-                <span className="text-[10px] opacity-80 font-mono">
-                  → Fixed: {corrComplexity.score}
+            {/* Big-O Complexity Badge */}
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-mono font-medium shadow-xs ${origComplexity.badgeClass}`}>
+              <Cpu className="w-3.5 h-3.5 shrink-0" />
+              <span>Complexity: <strong className="font-semibold">{origComplexity.timeComplexity}</strong></span>
+              {corrComplexity.timeComplexity !== origComplexity.timeComplexity && (
+                <span className="text-[10px] opacity-90 font-mono">
+                  → Fixed: <strong>{corrComplexity.timeComplexity}</strong>
                 </span>
               )}
             </div>
