@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { resolveUserGreetingName } from '../utils/userName';
+import { UserAvatar } from './UserAvatar';
 import { SampleExample, PythonDecodeResponse, AIEngineId, AnalysisMode, AttachedDocument, ChatMessage } from '../types';
 import { SAMPLE_EXAMPLES } from '../data/samples';
 
@@ -429,23 +430,29 @@ export const GeminiSidebar: React.FC<GeminiSidebarProps> = ({
         <div className={`w-full pt-2 border-t border-[#242828] ${isOpen ? '' : 'flex flex-col items-center'}`}>
           {isAuthenticated && user ? (
             isOpen ? (
-              <div className="flex items-center justify-between px-1">
+              <div className="flex items-center justify-between gap-2 px-1">
                 <div 
                   onClick={() => openSettingsModal('profile')}
-                  className="flex items-center gap-2 overflow-hidden cursor-pointer group"
+                  className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden cursor-pointer group"
                 >
-                  <div className="w-7 h-7 rounded-full bg-[#1e1f20] border border-[#282a2c] flex items-center justify-center text-xs shrink-0 group-hover:border-[#4285f4]">
-                    {user.avatar || '👤'}
-                  </div>
-                  <div className="truncate text-left min-w-0">
-                    <span className="text-xs font-medium text-white block truncate group-hover:text-[#a8c7fa] transition-colors">{sidebarDisplayName}</span>
-                    <span className="text-[10px] text-[#8e918f] truncate block">{user.email}</span>
+                  <UserAvatar
+                    avatar={user.avatar}
+                    name={sidebarDisplayName}
+                    email={user.email}
+                    sizeClass="w-9 h-9"
+                    roundedClass="rounded-full"
+                    textClass="text-xs"
+                    className="border border-[#282a2c] group-hover:border-[#4285f4]"
+                  />
+                  <div className="min-w-0 flex-1 text-left">
+                    <span className="text-sm font-medium text-white block truncate group-hover:text-[#a8c7fa] transition-colors">{sidebarDisplayName}</span>
+                    <span className="text-xs text-[#8e918f] truncate block">{user.email}</span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={logout}
-                  className="p-1.5 rounded-lg hover:bg-[#1e1f20] text-[#8e918f] hover:text-red-400 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg hover:bg-[#1e1f20] text-[#8e918f] hover:text-red-400 transition-colors cursor-pointer shrink-0"
                   title="Sign out"
                 >
                   <LogOut className="w-3.5 h-3.5" />
@@ -454,12 +461,18 @@ export const GeminiSidebar: React.FC<GeminiSidebarProps> = ({
             ) : (
               <div 
                 onClick={() => openSettingsModal('profile')}
-                className="cursor-pointer text-center group py-0.5"
+                className="cursor-pointer group py-0.5 flex items-center justify-center"
                 title={`Signed in as ${sidebarDisplayName}`}
               >
-                <div className="text-[10px] font-mono text-[#8e918f] group-hover:text-white truncate max-w-[50px] transition-colors">
-                  serco
-                </div>
+                <UserAvatar
+                  avatar={user.avatar}
+                  name={sidebarDisplayName}
+                  email={user.email}
+                  sizeClass="w-8 h-8"
+                  roundedClass="rounded-full"
+                  textClass="text-xs"
+                  className="border border-[#282a2c] group-hover:border-[#4285f4]"
+                />
               </div>
             )
           ) : (

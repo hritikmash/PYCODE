@@ -85,10 +85,25 @@ export const CopilotIcon: React.FC<EngineIconProps> = ({ className = 'w-4 h-4' }
   </svg>
 );
 
+export const GroqIcon: React.FC<EngineIconProps> = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="#18120e" stroke="#f97316" strokeWidth="1.6" />
+    <path
+      d="M13.5 6.5L8.5 13H12L10.5 17.5L15.5 11H12L13.5 6.5Z"
+      fill="#fb923c"
+      stroke="#fdba74"
+      strokeWidth="0.7"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export const renderEngineIcon = (iconType: string, className = 'w-4 h-4') => {
   switch (iconType) {
     case 'gemini':
       return <GeminiIcon className={className} />;
+    case 'groq':
+      return <GroqIcon className={className} />;
     case 'copilot':
       return <CopilotIcon className={className} />;
     case 'chatgpt':

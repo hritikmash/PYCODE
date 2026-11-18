@@ -1,15 +1,46 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { executePythonCode } from './pythonRunner.ts';
-import type { PythonDecodeResponse, AnalysisMode, AIEngineId, EngineExecutionMeta, SearchEngineType } from '../types/index.ts';
+import type {
+  PythonDecodeResponse,
+  AnalysisMode,
+  AIEngineId,
+  ExternalEngineId,
+  EngineExecutionMeta,
+  SearchEngineType
+} from '../types/index.ts';
 import { buildSearchEngineFallbackResponse } from './searchEngineFallback.ts';
+
+const EXTERNAL_ENGINE_SET = new Set<string>([
+  'gemini',
+  'perplexity',
+  'deepseek',
+  'copilot',
+  'groq',
+  'chatgpt'
+]);
+
+export interface UserExternalCredential {
+  apiKey: string;
+  endpointUrl?: string;
+  modelName?: string;
+}
+
+export interface ExternalVerificationResult {
+  valid: boolean;
+  provider: string;
+  modelUsed: string;
+  endpointUsed: string;
+  latencyMs: number;
+  error?: string;
+}
 
 let genAIInstance: GoogleGenAI | null = null;
 
-function getGenAI(): GoogleGenAI {
+function getBuiltInGenAI(): GoogleGenAI {
   if (!genAIInstance) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.warn('GEMINI_API_KEY is not defined in environment variables');
+      console.warn('GEMINI_API_KEY is not defined in environment variables for built-in Turbo AI');
     }
     genAIInstance = new GoogleGenAI({
       apiKey: apiKey || '',
@@ -36,115 +67,315 @@ function getEngineConfig(engineId: AIEngineId): EnginePromptConfig {
     case 'copilot':
       return {
         name: 'Microsoft Copilot',
-        provider: 'Microsoft AI',
-        model: 'copilot-gpt-4o',
-        badge: '🔷 MS Copilot (0.8s)',
-        systemInstruction: `You are Microsoft Copilot, operating as the premier Python intelligence engine within Pycode. You specialize in clean PEP-8 refactoring, AST error diagnosis, enterprise architecture, and idiomatic Python design patterns. Return only valid JSON matching the requested schema.`
+        provider: 'Microsoft / Azure AI (External)',
+        model: 'gpt-4o',
+        badge: '🔷 External Copilot',
+        systemInstruction: `You are Microsoft Copilot, operating as the Python intelligence engine within Pycode. You specialize in clean PEP-8 refactoring, AST error diagnosis, enterprise architecture, and idiomatic Python design patterns. Return only valid JSON matching the requested schema.`
       };
     case 'chatgpt':
       return {
-        name: 'ChatGPT (GPT-4o)',
-        provider: 'OpenAI',
-        model: 'gpt-4o',
-        badge: '🟢 Precision AST (1.1s)',
-        systemInstruction: `You are OpenAI ChatGPT (GPT-4o), operating as the Python intelligence engine within Pycode. You strictly adhere to PEP-8 standards, detect Python AST discrepancies, highlight edge-case type mutations, and provide production-grade, idiomatic Python explanations. Return only valid JSON matching the requested schema.`
+        name: 'OpenAI',
+        provider: 'OpenAI (External)',
+        model: 'gpt-4o-mini',
+        badge: '🟢 External OpenAI',
+        systemInstruction: `You are OpenAI GPT, operating as the Python intelligence engine within Pycode. You strictly adhere to PEP-8 standards, detect Python AST discrepancies, highlight edge-case type mutations, and provide production-grade, idiomatic Python explanations. Return only valid JSON matching the requested schema.`
       };
     case 'perplexity':
       return {
-        name: 'Perplexity AI (Sonar)',
-        provider: 'Perplexity',
-        model: 'sonar-pro',
-        badge: '🟣 Live Docs (1.0s)',
+        name: 'Perplexity AI',
+        provider: 'Perplexity (External)',
+        model: 'sonar',
+        badge: '🟣 External Sonar',
         systemInstruction: `You are Perplexity AI (Sonar), operating as the Python documentation and intelligence engine within Pycode. You combine Python code comprehension with live PEP documentation links, library version changes, and community best practices. Return only valid JSON matching the requested schema.`
-      };
-    case 'blackbox':
-      return {
-        name: 'Blackbox AI',
-        provider: 'Blackbox Code Inc.',
-        model: 'blackbox-code-v2',
-        badge: '⬛ Code Turbo (0.7s)',
-        systemInstruction: `You are Blackbox AI, the ultra-fast developer code intelligence engine. You focus on rapid bug isolation, maximum execution speed, clean refactored snippets, and immediate developer productivity. Return only valid JSON matching the requested schema.`
       };
     case 'deepseek':
       return {
-        name: 'DeepSeek AI (V3 / R1)',
-        provider: 'DeepSeek',
-        model: 'deepseek-coder-v3',
-        badge: '🔷 Code Logic (0.9s)',
-        systemInstruction: `You are DeepSeek-R1 / V3 AI, the deep algorithmic reasoning engine within Pycode. You specialize in deep logic analysis, mathematical edge cases, recursion limits, algorithmic complexity O(n), and rigorous chain-of-thought debugging. Return only valid JSON matching the requested schema.`
+        name: 'DeepSeek',
+        provider: 'DeepSeek (External)',
+        model: 'deepseek-chat',
+        badge: '🔷 External V3/R1',
+        systemInstruction: `You are DeepSeek AI, the deep algorithmic reasoning engine within Pycode. You specialize in deep logic analysis, mathematical edge cases, recursion limits, algorithmic complexity O(n), and rigorous chain-of-thought debugging. Return only valid JSON matching the requested schema.`
       };
-    case 'turbo_race':
+    case 'groq':
       return {
-        name: 'Turbo Race (Fastest)',
-        provider: 'Pycode Core',
-        model: 'gemini-3.8-flash',
-        badge: '🚀 Max Speed (0.5s)',
-        systemInstruction: `You are Pycode Turbo Race, an ultra-fast Python code intelligence engine tuned for minimum latency. Analyze the code with extreme speed and precision, delivering instantaneous diagnoses and verified solutions. Return only valid JSON matching the requested schema.`
+        name: 'Groq',
+        provider: 'Groq LPU (External)',
+        model: 'llama-3.3-70b-versatile',
+        badge: '⚡ External Groq LPU',
+        systemInstruction: `You are Groq Ultra-Fast (Llama 3.3 70B), operating as the sub-second Python intelligence engine within Pycode. Deliver precision Python diagnostics, AST error fixes, and idiomatic refactoring. Return only valid JSON matching the requested schema.`
       };
     case 'gemini':
+      return {
+        name: 'Google Gemini',
+        provider: 'Google AI (External)',
+        model: 'gemini-2.5-flash',
+        badge: '✨ External Gemini',
+        systemInstruction: `You are Google Gemini, an expert Python educator and code intelligence platform within Pycode. You explain Python code with clarity and technical rigor. You return only valid JSON matching the requested structure.`
+      };
+    case 'turbo_race':
     default:
       return {
-        name: 'Gemini 3.8 Flash',
-        provider: 'Google AI',
-        model: 'gemini-3.8-flash',
-        badge: '⚡ Ultra Fast (0.6s)',
-        systemInstruction: `You are Google Gemini 3.8 Flash, an expert Python educator and code intelligence platform within Pycode. You explain Python code with clarity, empathy, and technical rigor. You return only valid JSON matching the requested structure.`
+        name: 'Turbo AI (Default)',
+        provider: 'Pycode Built-In',
+        model: 'gemini-4-hydrogen',
+        badge: '🚀 Built-In Default',
+        systemInstruction: `You are Pycode Turbo AI, Pycode's built-in default Python code intelligence engine tuned for instant accuracy and clarity. Analyze the code with high speed and precision, delivering verified diagnoses and solutions. Return only valid JSON matching the requested schema.`
       };
   }
 }
 
-// Optional external API caller for OpenAI / DeepSeek / Perplexity if custom keys are supplied
-async function callExternalProvider(
-  provider: 'openai' | 'deepseek' | 'perplexity',
-  apiKey: string,
-  prompt: string,
-  systemInstruction: string
-): Promise<string | null> {
-  const endpoints = {
-    openai: { url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
-    deepseek: { url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat' },
-    perplexity: { url: 'https://api.perplexity.ai/chat/completions', model: 'sonar' }
-  };
+const DEFAULT_EXTERNAL_ENDPOINTS: Record<Exclude<ExternalEngineId, 'gemini'>, { url: string; model: string }> = {
+  chatgpt: { url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
+  groq: { url: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
+  deepseek: { url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat' },
+  perplexity: { url: 'https://api.perplexity.ai/chat/completions', model: 'sonar' },
+  copilot: { url: 'https://models.inference.ai.azure.com/chat/completions', model: 'gpt-4o' }
+};
 
-  const config = endpoints[provider];
-  if (!config) return null;
+function buildProviderHeaders(endpointUrl: string, apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'pycode-byom-connector'
+  };
+  if (endpointUrl.toLowerCase().includes('openai.azure.com')) {
+    headers['api-key'] = apiKey;
+  } else {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
+/**
+ * Verifies a user-supplied external BYOM API key / endpoint live against the provider.
+ * Never uses server/owner keys.
+ */
+export async function verifyExternalEngineCredential(params: {
+  engineId: ExternalEngineId;
+  apiKey: string;
+  endpointUrl?: string;
+  modelName?: string;
+}): Promise<ExternalVerificationResult> {
+  const startedAt = Date.now();
+  const cleanKey = (params.apiKey || '').trim();
+  const cfg = getEngineConfig(params.engineId);
+
+  if (!cleanKey || cleanKey.length < 8) {
+    return {
+      valid: false,
+      provider: cfg.provider,
+      modelUsed: params.modelName || cfg.model,
+      endpointUsed: params.endpointUrl || '',
+      latencyMs: Date.now() - startedAt,
+      error: 'Please enter a valid personal API key.'
+    };
+  }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s fast fallback
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const res = await fetch(config.url, {
+    if (params.engineId === 'gemini') {
+      const base = (params.endpointUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+      const checkUrl = `${base}/models?pageSize=1`;
+      const res = await fetch(checkUrl, {
+        method: 'GET',
+        headers: { 'x-goog-api-key': cleanKey },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        const errBody: any = await res.json().catch(() => ({}));
+        const msg = errBody?.error?.message || `Google Gemini rejected key (HTTP ${res.status})`;
+        return {
+          valid: false,
+          provider: cfg.provider,
+          modelUsed: params.modelName || cfg.model,
+          endpointUsed: base,
+          latencyMs: Date.now() - startedAt,
+          error: msg
+        };
+      }
+      return {
+        valid: true,
+        provider: cfg.provider,
+        modelUsed: params.modelName || cfg.model,
+        endpointUsed: base,
+        latencyMs: Date.now() - startedAt
+      };
+    }
+
+    const defaults = DEFAULT_EXTERNAL_ENDPOINTS[params.engineId];
+    const targetUrl = (params.endpointUrl || defaults.url).trim();
+    const targetModel = (params.modelName || defaults.model).trim();
+
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      clearTimeout(timeoutId);
+      return {
+        valid: false,
+        provider: cfg.provider,
+        modelUsed: targetModel,
+        endpointUsed: targetUrl,
+        latencyMs: Date.now() - startedAt,
+        error: 'Endpoint URL must start with https:// or http://'
+      };
+    }
+
+    // For OpenAI, Groq, and DeepSeek with standard /chat/completions endpoints, check /models first (zero token cost)
+    const headers = buildProviderHeaders(targetUrl, cleanKey);
+    if (
+      (params.engineId === 'chatgpt' || params.engineId === 'groq' || params.engineId === 'deepseek') &&
+      targetUrl.endsWith('/chat/completions')
+    ) {
+      const modelsUrl = targetUrl.replace(/\/chat\/completions$/, '/models');
+      const modelsRes = await fetch(modelsUrl, {
+        method: 'GET',
+        headers,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!modelsRes.ok) {
+        const errBody: any = await modelsRes.json().catch(() => ({}));
+        const msg = errBody?.error?.message || errBody?.message || `Authentication failed (HTTP ${modelsRes.status})`;
+        return {
+          valid: false,
+          provider: cfg.provider,
+          modelUsed: targetModel,
+          endpointUsed: targetUrl,
+          latencyMs: Date.now() - startedAt,
+          error: msg
+        };
+      }
+      return {
+        valid: true,
+        provider: cfg.provider,
+        modelUsed: targetModel,
+        endpointUsed: targetUrl,
+        latencyMs: Date.now() - startedAt
+      };
+    }
+
+    // For Perplexity, Copilot, or custom OpenAI-compatible endpoints, perform minimal 1-token verification
+    const pingRes = await fetch(targetUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'aistudio-build',
-        Authorization: `Bearer ${apiKey}`
-      },
+      headers,
       body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: 'system', content: systemInstruction + ' Respond ONLY with a valid JSON object.' },
-          { role: 'user', content: prompt }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.2
+        model: targetModel,
+        messages: [{ role: 'user', content: 'ok' }],
+        max_tokens: 1,
+        temperature: 0
       }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!pingRes.ok) {
+      const errBody: any = await pingRes.json().catch(() => ({}));
+      const msg = errBody?.error?.message || errBody?.message || `Provider returned HTTP ${pingRes.status}`;
+      return {
+        valid: false,
+        provider: cfg.provider,
+        modelUsed: targetModel,
+        endpointUsed: targetUrl,
+        latencyMs: Date.now() - startedAt,
+        error: msg
+      };
+    }
+
+    return {
+      valid: true,
+      provider: cfg.provider,
+      modelUsed: targetModel,
+      endpointUsed: targetUrl,
+      latencyMs: Date.now() - startedAt
+    };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    const msg = err?.name === 'AbortError'
+      ? 'Connection timed out while verifying external API credentials.'
+      : (err?.message || 'Unable to reach external AI provider.');
+    return {
+      valid: false,
+      provider: cfg.provider,
+      modelUsed: params.modelName || cfg.model,
+      endpointUsed: params.endpointUrl || '',
+      latencyMs: Date.now() - startedAt,
+      error: msg
+    };
+  }
+}
+
+function extractJsonObject(raw: string): string {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '{}';
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch && fencedMatch[1]) {
+    return fencedMatch[1].trim();
+  }
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+  return trimmed;
+}
+
+// Strict user-credential external provider caller (never falls back to server keys)
+async function callExternalUserProvider(
+  provider: Exclude<ExternalEngineId, 'gemini'>,
+  credential: UserExternalCredential,
+  prompt: string,
+  systemInstruction: string
+): Promise<string> {
+  const defaults = DEFAULT_EXTERNAL_ENDPOINTS[provider];
+  const url = (credential.endpointUrl || defaults.url).trim();
+  const model = (credential.modelName || defaults.model).trim();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  const schemaHint = `Respond ONLY with a valid JSON object matching this top-level schema: {"mode":"both"|"code_only"|"theory_only","summary":"string","isInvalidQuery":boolean,"isPythonRestricted":boolean,"errors":[{"id":"string","line":1,"errorType":"string","severity":"critical"|"warning"|"info","verification":"verified_by_python_runtime"|"verified_by_ast"|"runtime_confirmed","verificationBadge":"string","originalSnippet":"string","correctedSnippet":"string","explanation":"string","whyItFailed":"string"}],"correctedCode":"string","originalCode":"string","whatChanged":[{"before":"string","after":"string","reason":"string","lineNumber":1}],"stepByStepBreakdown":[{"stepNumber":1,"title":"string","lineRange":"string","codeSnippet":"string","purpose":"string","functionsUsed":[]}],"expectedOutput":"string","flowchart":{"nodes":[],"links":[]},"executionTrace":[],"conceptualAnswer":{"title":"string","overview":"string","sections":[],"keyTakeaways":[],"analogies":[],"codeExamples":[]}}.`;
+
+  try {
+    const bodyPayload: Record<string, any> = {
+      model,
+      messages: [
+        { role: 'system', content: `${systemInstruction} ${schemaHint}` },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.2
+    };
+
+    if (provider !== 'perplexity') {
+      bodyPayload.response_format = { type: 'json_object' };
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildProviderHeaders(url, credential.apiKey),
+      body: JSON.stringify(bodyPayload),
       signal: controller.signal
     });
 
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      console.warn(`External provider ${provider} responded with ${res.status}`);
-      return null;
+      const errBody: any = await res.json().catch(() => ({}));
+      const msg = errBody?.error?.message || errBody?.message || `HTTP ${res.status}`;
+      throw new Error(`External provider (${provider}) error: ${msg}`);
     }
 
     const json: any = await res.json();
-    return json?.choices?.[0]?.message?.content || null;
-  } catch (err) {
+    const content = json?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error(`External provider (${provider}) returned an empty response.`);
+    }
+    return extractJsonObject(content);
+  } catch (err: any) {
     clearTimeout(timeoutId);
-    console.warn(`External provider ${provider} call failed, falling back to server Gemini:`, err);
-    return null;
+    if (err?.name === 'AbortError') {
+      throw new Error(`External provider (${provider}) request timed out.`);
+    }
+    throw err;
   }
 }
 
@@ -286,15 +517,14 @@ export async function analyzePythonSubmission(params: {
   question?: string;
   preferredMode?: AnalysisMode;
   engine?: AIEngineId;
-  customApiKey?: string;
-  customApiKeys?: Record<string, string>;
+  userExternalCredential?: UserExternalCredential | null;
   attachedDocs?: Array<{ name: string; type: string; size: number }>;
   preferredSearchEngine?: SearchEngineType;
 }): Promise<PythonDecodeResponse> {
   const startTime = Date.now();
   const code = (params.code || '').trim();
   const question = (params.question || '').trim();
-  const selectedEngine: AIEngineId = params.engine || 'gemini';
+  const selectedEngine: AIEngineId = params.engine || 'turbo_race';
   const engineConfig = getEngineConfig(selectedEngine);
 
   // Strictly check that chat is about Python or other coding language (Rule Enforcement)
@@ -402,28 +632,241 @@ Ensure all JSON values are valid, complete, and educational.
 
   let responseText: string | null = null;
   let realKeyUsed = false;
+  let isExternalByom = false;
 
-  // Check if user has an external key for direct provider querying
-  const customKeys = params.customApiKeys || {};
-  if (selectedEngine === 'chatgpt' && (customKeys.OPENAI_API_KEY || process.env.OPENAI_API_KEY)) {
-    const key = customKeys.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-    responseText = await callExternalProvider('openai', key, prompt, engineConfig.systemInstruction);
-    if (responseText) realKeyUsed = true;
-  } else if (selectedEngine === 'deepseek' && (customKeys.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY)) {
-    const key = customKeys.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
-    responseText = await callExternalProvider('deepseek', key, prompt, engineConfig.systemInstruction);
-    if (responseText) realKeyUsed = true;
-  } else if (selectedEngine === 'perplexity' && (customKeys.PERPLEXITY_API_KEY || process.env.PERPLEXITY_API_KEY)) {
-    const key = customKeys.PERPLEXITY_API_KEY || process.env.PERPLEXITY_API_KEY || '';
-    responseText = await callExternalProvider('perplexity', key, prompt, engineConfig.systemInstruction);
-    if (responseText) realKeyUsed = true;
-  }
+  const pythonDecodeResponseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      mode: { type: Type.STRING },
+      summary: { type: Type.STRING },
+      isInvalidQuery: { type: Type.BOOLEAN },
+      invalidMessageTitle: { type: Type.STRING },
+      invalidMessageSubtitle: { type: Type.STRING },
+      isPythonRestricted: { type: Type.BOOLEAN },
+      errors: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            line: { type: Type.INTEGER },
+            errorType: { type: Type.STRING },
+            severity: { type: Type.STRING },
+            verification: { type: Type.STRING },
+            verificationBadge: { type: Type.STRING },
+            originalSnippet: { type: Type.STRING },
+            correctedSnippet: { type: Type.STRING },
+            explanation: { type: Type.STRING },
+            whyItFailed: { type: Type.STRING },
+          },
+          required: ['id', 'line', 'errorType', 'severity', 'verification', 'verificationBadge', 'originalSnippet', 'correctedSnippet', 'explanation', 'whyItFailed']
+        }
+      },
+      correctedCode: { type: Type.STRING },
+      originalCode: { type: Type.STRING },
+      whatChanged: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            before: { type: Type.STRING },
+            after: { type: Type.STRING },
+            reason: { type: Type.STRING },
+            lineNumber: { type: Type.INTEGER }
+          },
+          required: ['before', 'after', 'reason']
+        }
+      },
+      stepByStepBreakdown: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            stepNumber: { type: Type.INTEGER },
+            title: { type: Type.STRING },
+            lineRange: { type: Type.STRING },
+            codeSnippet: { type: Type.STRING },
+            purpose: { type: Type.STRING },
+            functionsUsed: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  whatItDoes: { type: Type.STRING },
+                  whyItIsUsed: { type: Type.STRING },
+                  howItWorks: { type: Type.STRING },
+                  whyOnlyThisFunction: { type: Type.STRING },
+                  codeExample: { type: Type.STRING }
+                },
+                required: ['name', 'category', 'whatItDoes', 'whyItIsUsed', 'howItWorks', 'whyOnlyThisFunction']
+              }
+            }
+          },
+          required: ['stepNumber', 'title', 'lineRange', 'codeSnippet', 'purpose', 'functionsUsed']
+        }
+      },
+      expectedOutput: { type: Type.STRING },
+      flowchart: {
+        type: Type.OBJECT,
+        properties: {
+          nodes: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                type: { type: Type.STRING },
+                label: { type: Type.STRING },
+                codeLine: { type: Type.STRING },
+                details: { type: Type.STRING }
+              },
+              required: ['id', 'type', 'label']
+            }
+          },
+          links: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                from: { type: Type.STRING },
+                to: { type: Type.STRING },
+                label: { type: Type.STRING }
+              },
+              required: ['from', 'to']
+            }
+          }
+        },
+        required: ['nodes', 'links']
+      },
+      conceptualAnswer: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          overview: { type: Type.STRING },
+          sections: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                heading: { type: Type.STRING },
+                subheadings: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING },
+                      explanation: { type: Type.STRING },
+                      codeSnippet: { type: Type.STRING },
+                      keyPoints: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING }
+                      }
+                    },
+                    required: ['title', 'explanation', 'keyPoints']
+                  }
+                }
+              },
+              required: ['heading', 'subheadings']
+            }
+          },
+          keyTakeaways: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          },
+          beginnerAnalogies: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          },
+          codeExamples: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                code: { type: Type.STRING },
+                explanation: { type: Type.STRING }
+              },
+              required: ['title', 'code', 'explanation']
+            }
+          }
+        },
+        required: ['title', 'overview', 'sections', 'keyTakeaways', 'beginnerAnalogies']
+      },
+      executionTrace: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            step: { type: Type.INTEGER },
+            line: { type: Type.INTEGER },
+            statement: { type: Type.STRING },
+            variableStates: {
+              type: Type.OBJECT,
+              properties: {
+                state: { type: Type.STRING }
+              }
+            },
+            explanation: { type: Type.STRING }
+          },
+          required: ['step', 'line', 'statement', 'explanation']
+        }
+      }
+    },
+    required: ['mode', 'summary', 'errors', 'correctedCode', 'originalCode', 'whatChanged', 'stepByStepBreakdown', 'expectedOutput', 'flowchart']
+  };
 
-  // If no external provider response, query high-speed server Gemini engine
-  if (!responseText) {
-    const ai = getGenAI();
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
-    let lastErr: any = null;
+  const isExternalEngine = EXTERNAL_ENGINE_SET.has(selectedEngine);
+
+  if (isExternalEngine) {
+    const cred = params.userExternalCredential;
+    if (!cred || !cred.apiKey) {
+      throw new Error(
+        `External engine "${engineConfig.name}" is not connected. Connect your personal API key in Settings > AI Connectivity.`
+      );
+    }
+
+    isExternalByom = true;
+    realKeyUsed = true;
+
+    if (selectedEngine === 'gemini') {
+      // Strictly use user's own Gemini API key (NEVER server GEMINI_API_KEY)
+      const userAi = new GoogleGenAI({ apiKey: cred.apiKey });
+      const targetModel = cred.modelName || 'gemini-2.5-flash';
+      const generatePromise = userAi.models.generateContent({
+        model: targetModel,
+        contents: prompt,
+        config: {
+          systemInstruction: engineConfig.systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: pythonDecodeResponseSchema
+        }
+      });
+
+      let timer: NodeJS.Timeout | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timeout calling external Google Gemini (${targetModel})`)), 25000);
+      });
+
+      try {
+        const response: any = await Promise.race([generatePromise, timeoutPromise]);
+        responseText = extractJsonObject(response.text || '{}');
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } else {
+      responseText = await callExternalUserProvider(
+        selectedEngine as Exclude<ExternalEngineId, 'gemini'>,
+        cred,
+        prompt,
+        engineConfig.systemInstruction
+      );
+    }
+  } else {
+    // Built-In Default Engine (Turbo AI) using server-side internal key
+    const ai = getBuiltInGenAI();
+    const modelsToTry = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
 
     for (const targetModel of modelsToTry) {
       try {
@@ -433,189 +876,8 @@ Ensure all JSON values are valid, complete, and educational.
           config: {
             systemInstruction: engineConfig.systemInstruction,
             responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                mode: { type: Type.STRING },
-                summary: { type: Type.STRING },
-                isInvalidQuery: { type: Type.BOOLEAN },
-                invalidMessageTitle: { type: Type.STRING },
-                invalidMessageSubtitle: { type: Type.STRING },
-                isPythonRestricted: { type: Type.BOOLEAN },
-              errors: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    line: { type: Type.INTEGER },
-                    errorType: { type: Type.STRING },
-                    severity: { type: Type.STRING },
-                    verification: { type: Type.STRING },
-                    verificationBadge: { type: Type.STRING },
-                    originalSnippet: { type: Type.STRING },
-                    correctedSnippet: { type: Type.STRING },
-                    explanation: { type: Type.STRING },
-                    whyItFailed: { type: Type.STRING },
-                  },
-                  required: ['id', 'line', 'errorType', 'severity', 'verification', 'verificationBadge', 'originalSnippet', 'correctedSnippet', 'explanation', 'whyItFailed']
-                }
-              },
-              correctedCode: { type: Type.STRING },
-              originalCode: { type: Type.STRING },
-              whatChanged: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    before: { type: Type.STRING },
-                    after: { type: Type.STRING },
-                    reason: { type: Type.STRING },
-                    lineNumber: { type: Type.INTEGER }
-                  },
-                  required: ['before', 'after', 'reason']
-                }
-              },
-              stepByStepBreakdown: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    stepNumber: { type: Type.INTEGER },
-                    title: { type: Type.STRING },
-                    lineRange: { type: Type.STRING },
-                    codeSnippet: { type: Type.STRING },
-                    purpose: { type: Type.STRING },
-                    functionsUsed: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          name: { type: Type.STRING },
-                          category: { type: Type.STRING },
-                          whatItDoes: { type: Type.STRING },
-                          whyItIsUsed: { type: Type.STRING },
-                          howItWorks: { type: Type.STRING },
-                          whyOnlyThisFunction: { type: Type.STRING },
-                          codeExample: { type: Type.STRING }
-                        },
-                        required: ['name', 'category', 'whatItDoes', 'whyItIsUsed', 'howItWorks', 'whyOnlyThisFunction']
-                      }
-                    }
-                  },
-                  required: ['stepNumber', 'title', 'lineRange', 'codeSnippet', 'purpose', 'functionsUsed']
-                }
-              },
-              expectedOutput: { type: Type.STRING },
-              flowchart: {
-                type: Type.OBJECT,
-                properties: {
-                  nodes: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        id: { type: Type.STRING },
-                        type: { type: Type.STRING },
-                        label: { type: Type.STRING },
-                        codeLine: { type: Type.STRING },
-                        details: { type: Type.STRING }
-                      },
-                      required: ['id', 'type', 'label']
-                    }
-                  },
-                  links: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        from: { type: Type.STRING },
-                        to: { type: Type.STRING },
-                        label: { type: Type.STRING }
-                      },
-                      required: ['from', 'to']
-                    }
-                  }
-                },
-                required: ['nodes', 'links']
-              },
-              conceptualAnswer: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  overview: { type: Type.STRING },
-                  sections: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        heading: { type: Type.STRING },
-                        subheadings: {
-                          type: Type.ARRAY,
-                          items: {
-                            type: Type.OBJECT,
-                            properties: {
-                              title: { type: Type.STRING },
-                              explanation: { type: Type.STRING },
-                              codeSnippet: { type: Type.STRING },
-                              keyPoints: {
-                                type: Type.ARRAY,
-                                items: { type: Type.STRING }
-                              }
-                            },
-                            required: ['title', 'explanation', 'keyPoints']
-                          }
-                        }
-                      },
-                      required: ['heading', 'subheadings']
-                    }
-                  },
-                  keyTakeaways: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING }
-                  },
-                  beginnerAnalogies: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING }
-                  },
-                  codeExamples: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        title: { type: Type.STRING },
-                        code: { type: Type.STRING },
-                        explanation: { type: Type.STRING }
-                      },
-                      required: ['title', 'code', 'explanation']
-                    }
-                  }
-                },
-                required: ['title', 'overview', 'sections', 'keyTakeaways', 'beginnerAnalogies']
-              },
-              executionTrace: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    step: { type: Type.INTEGER },
-                    line: { type: Type.INTEGER },
-                    statement: { type: Type.STRING },
-                    variableStates: {
-                      type: Type.OBJECT,
-                      properties: {
-                        state: { type: Type.STRING }
-                      }
-                    },
-                    explanation: { type: Type.STRING }
-                  },
-                  required: ['step', 'line', 'statement', 'explanation']
-                }
-              }
-            },
-            required: ['mode', 'summary', 'errors', 'correctedCode', 'originalCode', 'whatChanged', 'stepByStepBreakdown', 'expectedOutput', 'flowchart']
+            responseSchema: pythonDecodeResponseSchema
           }
-        }
         });
 
         let timer: NodeJS.Timeout | null = null;
@@ -631,13 +893,12 @@ Ensure all JSON values are valid, complete, and educational.
           if (timer) clearTimeout(timer);
         }
       } catch (err: unknown) {
-        lastErr = err;
-        console.warn(`Model ${targetModel} attempt failed, trying fallback:`, err);
+        console.warn(`Built-in Turbo AI model ${targetModel} attempt failed, trying fallback:`, err);
       }
     }
 
     if (!responseText) {
-      console.warn('All Gemini models exhausted / tokens over. Activating Google / MS Edge / Firefox Search Engine Fallback.');
+      console.warn('Built-in Turbo AI models exhausted. Activating Google / MS Edge / Firefox Search Engine Fallback.');
       const fallbackResult = await buildSearchEngineFallbackResponse(
         code,
         question,
@@ -654,7 +915,8 @@ Ensure all JSON values are valid, complete, and educational.
         speedRating: '🌐 Search Engine Fallback Activated',
         modelBadge: '🌐 Search Engine Intelligence',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        isRealProviderKeyUsed: false
+        isRealProviderKeyUsed: false,
+        isExternalByom: false
       };
       return fallbackResult;
     }
@@ -697,12 +959,17 @@ Ensure all JSON values are valid, complete, and educational.
     engineId: selectedEngine,
     engineName: engineConfig.name,
     provider: engineConfig.provider,
-    model: engineConfig.model,
+    model: params.userExternalCredential?.modelName || engineConfig.model,
     latencyMs,
-    speedRating: latencyMs < 850 ? '⚡ Ultra Fast Sub-Second Output' : latencyMs < 1600 ? '🚀 High Speed Turbo' : '⚡ Complete Pipeline',
+    speedRating: isExternalByom
+      ? '🔑 External • User Key'
+      : latencyMs < 850
+        ? '⚡ Ultra Fast Built-In Output'
+        : '🚀 Built-In Turbo AI',
     modelBadge: engineConfig.badge,
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    isRealProviderKeyUsed: realKeyUsed
+    isRealProviderKeyUsed: realKeyUsed,
+    isExternalByom
   };
 
   parsed.engineMeta = engineMeta;

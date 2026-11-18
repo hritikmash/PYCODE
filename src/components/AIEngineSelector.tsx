@@ -1,8 +1,13 @@
 import React from 'react';
-import { Zap, Settings, ShieldCheck, ChevronRight } from 'lucide-react';
+import { Zap, Settings } from 'lucide-react';
 import { AIEngineId } from '../types';
-import { AI_ENGINES } from '../constants/aiEngines';
+import {
+  DEFAULT_BUILTIN_ENGINE_ID,
+  getAvailableWorkspaceEngines,
+  getEngineById
+} from '../constants/aiEngines';
 import { renderEngineIcon } from './AIEngineIcons';
+import { useAuth } from '../context/AuthContext';
 
 interface AIEngineSelectorProps {
   selectedEngine: AIEngineId;
@@ -16,10 +21,11 @@ export const AIEngineSelector: React.FC<AIEngineSelectorProps> = ({
   selectedEngine,
   onSelectEngine,
   onOpenSettings,
-  disabled = false,
-  compact = false
+  disabled = false
 }) => {
-  const currentEngine = AI_ENGINES.find(e => e.id === selectedEngine) || AI_ENGINES[0];
+  const { connectedExternalEngines } = useAuth();
+  const workspaceEngines = getAvailableWorkspaceEngines(connectedExternalEngines);
+  const currentEngine = getEngineById(selectedEngine);
 
   return (
     <div className="w-full">
@@ -28,7 +34,7 @@ export const AIEngineSelector: React.FC<AIEngineSelectorProps> = ({
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 font-semibold text-white tracking-wide">
             <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-            <span>AI Acceleration Engine</span>
+            <span>Workspace AI Engine</span>
           </span>
           <span className="text-[#8e918f] hidden sm:inline">·</span>
           <span className="text-[#8e918f] text-[11px] hidden sm:inline">
@@ -40,19 +46,20 @@ export const AIEngineSelector: React.FC<AIEngineSelectorProps> = ({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="inline-flex items-center gap-1 text-[11px] text-[#8e918f] hover:text-[#a8c7fa] transition-colors px-2 py-0.5 rounded-md hover:bg-[#282a2c]"
-            title="Configure API Keys & Engine Routing"
+            className="inline-flex items-center gap-1 text-[11px] text-[#8e918f] hover:text-[#a8c7fa] transition-colors px-2 py-0.5 rounded-md hover:bg-[#282a2c] cursor-pointer"
+            title="Configure AI Connectivity & BYOM Keys"
           >
             <Settings className="w-3 h-3" />
-            <span>Engine Config & Keys</span>
+            <span>AI Connectivity</span>
           </button>
         )}
       </div>
 
-      {/* Engine Pill Carousel / Grid */}
+      {/* Engine Pill Carousel / Grid (Turbo AI + Connected External Engines Only) */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-zinc-700">
-        {AI_ENGINES.map((engine) => {
+        {workspaceEngines.map((engine) => {
           const isSelected = selectedEngine === engine.id;
+          const isBuiltIn = engine.id === DEFAULT_BUILTIN_ENGINE_ID || Boolean(engine.isBuiltInDefault);
           return (
             <button
               key={engine.id}
@@ -78,20 +85,24 @@ export const AIEngineSelector: React.FC<AIEngineSelectorProps> = ({
                 {renderEngineIcon(engine.iconType, 'w-4 h-4')}
               </div>
 
-              {/* Name & Latency */}
+              {/* Name & Type */}
               <div className="flex flex-col text-left">
                 <span className={`leading-none font-medium ${isSelected ? 'text-white font-semibold' : ''}`}>
                   {engine.name}
                 </span>
                 <span className="text-[10px] text-[#8e918f] mt-0.5 leading-none font-mono">
-                  {engine.latencyBadge}
+                  {isBuiltIn ? 'Built-In Default' : 'External • User Key'}
                 </span>
               </div>
 
-              {/* Speed / Badge indicator */}
+              {/* Badge indicator */}
               {isSelected && (
-                <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
-                  FAST
+                <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider border ${
+                  isBuiltIn
+                    ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60'
+                    : 'bg-sky-950/80 text-sky-400 border-sky-800/60'
+                }`}>
+                  {isBuiltIn ? 'DEFAULT' : 'BYOM'}
                 </span>
               )}
             </button>

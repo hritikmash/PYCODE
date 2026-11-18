@@ -195,21 +195,53 @@ export interface SampleExample {
   question: string;
 }
 
-export type AIEngineId = 'gemini' | 'copilot' | 'chatgpt' | 'perplexity' | 'blackbox' | 'deepseek' | 'turbo_race';
+export type AIEngineId = 'turbo_race' | 'gemini' | 'perplexity' | 'deepseek' | 'copilot' | 'groq' | 'chatgpt' | 'blackbox';
+
+export type ExternalEngineId = 'gemini' | 'perplexity' | 'deepseek' | 'copilot' | 'groq' | 'chatgpt';
+
+// Alias preserved for compatibility
+export type ConnectorEngineId = ExternalEngineId;
+
+export interface ExternalEngineCredentialMeta {
+  engineId: ExternalEngineId;
+  status: 'connected' | 'disconnected';
+  maskedKey?: string;
+  endpointUrl?: string;
+  modelName?: string;
+  connectedAt?: string;
+  lastVerifiedAt?: string;
+}
+
+export interface SyncedEngineSession {
+  engineId: AIEngineId;
+  status: 'connected' | 'disconnected';
+  syncedAt?: string;
+  sessionTokenRef?: string;
+  routeMode?: 'workspace_proxy' | 'custom_server_vault' | 'external_user_key';
+}
 
 export interface AIEngineInfo {
   id: AIEngineId;
   name: string;
+  shortName?: string;
   provider: string;
   tagline: string;
   badge: string;
   latencyBadge: string;
   accentColor: string;
-  iconType: 'gemini' | 'copilot' | 'chatgpt' | 'perplexity' | 'blackbox' | 'deepseek' | 'turbo';
+  iconType: 'gemini' | 'groq' | 'copilot' | 'chatgpt' | 'perplexity' | 'blackbox' | 'deepseek' | 'turbo';
   description: string;
   speedRanking: number;
   supportsRealTimeKeys: boolean;
   envKeyName?: string;
+  isBuiltInDefault?: boolean;
+  isConnectorEngine?: boolean;
+  defaultEnabled?: boolean;
+  connectionNote?: string;
+  defaultEndpointUrl?: string;
+  defaultModel?: string;
+  apiKeyPlaceholder?: string;
+  requiresEndpoint?: boolean;
 }
 
 export interface EngineExecutionMeta {
@@ -222,5 +254,7 @@ export interface EngineExecutionMeta {
   modelBadge: string;
   timestamp: string;
   isRealProviderKeyUsed?: boolean;
+  isExternalByom?: boolean;
 }
+
 

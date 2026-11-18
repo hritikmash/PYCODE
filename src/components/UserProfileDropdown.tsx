@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { resolveUserGreetingName } from '../utils/userName';
+import { UserAvatar } from './UserAvatar';
 
 export const UserProfileDropdown: React.FC = () => {
   const { 
@@ -100,15 +101,15 @@ export const UserProfileDropdown: React.FC = () => {
         title={`Signed in as ${displayName}`}
       >
         {/* User Avatar Circle */}
-        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-sky-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-inner overflow-hidden">
-          {user.avatar && user.avatar.startsWith('http') ? (
-            <img src={user.avatar} alt={displayName} className="w-full h-full object-cover" />
-          ) : user.avatar ? (
-            <span className="text-sm select-none">{user.avatar}</span>
-          ) : (
-            displayName[0]?.toUpperCase() || 'U'
-          )}
-        </div>
+        <UserAvatar
+          avatar={user.avatar}
+          name={displayName}
+          email={user.email}
+          sizeClass="w-7 h-7"
+          roundedClass="rounded-full"
+          textClass="text-xs"
+          className="shadow-inner"
+        />
 
         {/* User Name Preview (Desktop) */}
         <div className="hidden md:flex flex-col text-left">
@@ -129,22 +130,23 @@ export const UserProfileDropdown: React.FC = () => {
           {/* User Info Card */}
           <div className="p-3 rounded-xl bg-[#131314] border border-[#282a2c] mb-2 space-y-1.5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center overflow-hidden shrink-0">
-                  {user.avatar && user.avatar.startsWith('http') ? (
-                    <img src={user.avatar} alt={displayName} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-lg">{user.avatar || '👤'}</span>
-                  )}
-                </div>
-                <div className="min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <UserAvatar
+                  avatar={user.avatar}
+                  name={displayName}
+                  email={user.email}
+                  sizeClass="w-9 h-9"
+                  roundedClass="rounded-full"
+                  textClass="text-xs"
+                />
+                <div className="min-w-0 flex-1">
                   <div className="font-semibold text-white text-sm truncate flex items-center gap-1.5">
-                    <span>{displayName}</span>
+                    <span className="truncate">{displayName}</span>
                     {user.avatar?.startsWith('http') && (
-                      <span className="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-400/30 px-1 rounded-sm" title="Google Verified">G</span>
+                      <span className="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-400/30 px-1 rounded-sm shrink-0" title="Google Verified">G</span>
                     )}
                   </div>
-                  <div className="text-[11px] text-[#8e918f] truncate">{user.email}</div>
+                  <div className="text-xs text-[#8e918f] truncate">{user.email}</div>
                 </div>
               </div>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${

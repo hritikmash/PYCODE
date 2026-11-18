@@ -11,7 +11,37 @@ import {
   type GoogleAuthenticatorSetup
 } from './totpService.ts';
 
+import type {
+  AIEngineId,
+  ConnectorEngineId,
+  ExternalEngineId,
+  ExternalEngineCredentialMeta,
+  SyncedEngineSession
+} from '../types/index.ts';
+
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export const SUPPORTED_EXTERNAL_ENGINES: ExternalEngineId[] = [
+  'gemini',
+  'perplexity',
+  'deepseek',
+  'copilot',
+  'groq',
+  'chatgpt'
+];
+export const SUPPORTED_CONNECTOR_ENGINES: ConnectorEngineId[] = SUPPORTED_EXTERNAL_ENGINES;
+
+export interface StoredExternalCredential {
+  engineId: ExternalEngineId;
+  encryptedApiKey: string;
+  iv: string;
+  authTag: string;
+  maskedKey: string;
+  endpointUrl?: string;
+  modelName?: string;
+  connectedAt: string;
+  lastVerifiedAt: string;
+}
 
 export interface UserProfile {
   id: string;
@@ -21,6 +51,13 @@ export interface UserProfile {
   role: UserRole;
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
   twoFactorEnabled?: boolean;
+  connectedExternalEngines?: ExternalEngineId[];
+  externalConnections?: Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>>;
+  preferredExternalEngines?: ExternalEngineId[];
+  enabledEngines?: ConnectorEngineId[];
+  hasConfiguredEngines?: boolean;
+  syncedEngineSessions?: Record<string, SyncedEngineSession>;
+  openAiRouteMode?: 'workspace_proxy' | 'custom_server_vault';
   createdAt: string;
   lastLoginAt: string;
 }
@@ -30,6 +67,7 @@ interface StoredUser extends UserProfile {
   salt: string;
   twoFactorSecret?: string;
   backupCodes?: string[];
+  externalCredentials?: Partial<Record<ExternalEngineId, StoredExternalCredential>>;
 }
 
 export interface ClientInfo {
@@ -155,6 +193,11 @@ export interface UserGroupedDevicesRecord {
   lastLoginAt: string;
   createdAt: string;
   twoFactorEnabled?: boolean;
+  connectedExternalEngines?: ExternalEngineId[];
+  enabledEngines?: ConnectorEngineId[];
+  hasConfiguredEngines?: boolean;
+  externalConnections?: Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>>;
+  syncedEngineSessions?: Record<string, SyncedEngineSession>;
   devices: UserDeviceRecord[];
 }
 
@@ -241,6 +284,7 @@ const LOGIN_LOGS_FILE = path.join(DATA_DIR, 'login_logs.json');
 const FEEDBACK_FILE = path.join(DATA_DIR, 'feedback.json');
 const APP_CONFIG_FILE = path.join(DATA_DIR, 'app_config.json');
 const REMOVED_DEVICES_FILE = path.join(DATA_DIR, 'removed_devices.json');
+const VAULT_KEY_FILE = path.join(DATA_DIR, '.vault.key');
 
 export interface RemovedDeviceRecord {
   id: string;
@@ -262,7 +306,7 @@ const defaultAppConfig: AppConfig = {
     message: 'Welcome to Pycode! Learn Python concepts and execute code safely.',
     type: 'info'
   },
-  defaultEngine: 'gemini-3.8-flash',
+  defaultEngine: 'turbo_race',
   defaultMode: 'both',
   features: {
     sandboxExecution: true,
@@ -375,6 +419,135 @@ export function updateAppConfig(updates: Partial<AppConfig>, requestingUser: Use
   return updated;
 }
 
+export function normalizeConnectorEngines(engines?: unknown): ExternalEngineId[] {
+  if (!Array.isArray(engines) || engines.length === 0) {
+    return [];
+  }
+  const valid = engines.filter((id): id is ExternalEngineId =>
+    typeof id === 'string' && SUPPORTED_EXTERNAL_ENGINES.includes(id as ExternalEngineId)
+  );
+  return Array.from(new Set(valid));
+}
+
+function getVaultKey(): Buffer {
+  const envSecret = process.env.CREDENTIAL_ENCRYPTION_SECRET || process.env.AUTH_SECRET;
+  if (envSecret && envSecret.trim().length > 0) {
+    return crypto.createHash('sha256').update(envSecret.trim()).digest();
+  }
+  ensureDataFiles();
+  if (fs.existsSync(VAULT_KEY_FILE)) {
+    const hex = fs.readFileSync(VAULT_KEY_FILE, 'utf-8').trim();
+    if (/^[0-9a-f]{64}$/i.test(hex)) {
+      return Buffer.from(hex, 'hex');
+    }
+  }
+  const freshKey = crypto.randomBytes(32);
+  fs.writeFileSync(VAULT_KEY_FILE, freshKey.toString('hex'), { mode: 0o600 });
+  return freshKey;
+}
+
+function encryptSecret(plaintext: string): { encryptedApiKey: string; iv: string; authTag: string } {
+  const key = getVaultKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    encryptedApiKey: encrypted.toString('base64'),
+    iv: iv.toString('base64'),
+    authTag: authTag.toString('base64')
+  };
+}
+
+function decryptSecret(record: Pick<StoredExternalCredential, 'encryptedApiKey' | 'iv' | 'authTag'>): string {
+  const key = getVaultKey();
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(record.iv, 'base64')
+  );
+  decipher.setAuthTag(Buffer.from(record.authTag, 'base64'));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(record.encryptedApiKey, 'base64')),
+    decipher.final()
+  ]);
+  return decrypted.toString('utf8');
+}
+
+function maskApiKey(apiKey: string): string {
+  const trimmed = (apiKey || '').trim();
+  if (trimmed.length <= 8) return '••••' + trimmed.slice(-2);
+  return `${trimmed.slice(0, 4)}••••${trimmed.slice(-4)}`;
+}
+
+export function getConnectedExternalEngineIds(user: Pick<StoredUser, 'externalCredentials'>): ExternalEngineId[] {
+  const creds = user.externalCredentials || {};
+  return SUPPORTED_EXTERNAL_ENGINES.filter((engId) => Boolean(creds[engId]?.encryptedApiKey));
+}
+
+export function buildSafeExternalConnections(
+  user: Pick<StoredUser, 'externalCredentials'>
+): Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>> {
+  const creds = user.externalCredentials || {};
+  const result: Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>> = {};
+
+  for (const engId of SUPPORTED_EXTERNAL_ENGINES) {
+    const rec = creds[engId];
+    if (rec && rec.encryptedApiKey) {
+      result[engId] = {
+        engineId: engId,
+        status: 'connected',
+        maskedKey: rec.maskedKey,
+        endpointUrl: rec.endpointUrl,
+        modelName: rec.modelName,
+        connectedAt: rec.connectedAt,
+        lastVerifiedAt: rec.lastVerifiedAt
+      };
+    } else {
+      result[engId] = {
+        engineId: engId,
+        status: 'disconnected'
+      };
+    }
+  }
+  return result;
+}
+
+/**
+ * Strictly derives safe user engine state from verified user-supplied external credentials.
+ * Never creates placeholder tokens or internal fallbacks for unselected external engines.
+ */
+export function initializeUserEngineSessions(user: StoredUser): Record<string, SyncedEngineSession> {
+  const connected = getConnectedExternalEngineIds(user);
+  user.enabledEngines = connected;
+  user.connectedExternalEngines = connected;
+  if (typeof user.hasConfiguredEngines !== 'boolean') {
+    user.hasConfiguredEngines = false;
+  }
+  return {};
+}
+
+function toSafeUserProfile(user: StoredUser): UserProfile {
+  const {
+    passwordHash: _,
+    salt: __,
+    backupCodes: ___,
+    twoFactorSecret: ____,
+    externalCredentials: _____,
+    syncedEngineSessions: ______,
+    ...profile
+  } = user;
+  const connected = getConnectedExternalEngineIds(user);
+  return {
+    ...profile,
+    connectedExternalEngines: connected,
+    enabledEngines: connected,
+    externalConnections: buildSafeExternalConnections(user),
+    preferredExternalEngines: normalizeConnectorEngines(user.preferredExternalEngines),
+    hasConfiguredEngines: Boolean(user.hasConfiguredEngines)
+  };
+}
+
 function readUsers(): StoredUser[] {
   ensureDataFiles();
   try {
@@ -384,6 +557,25 @@ function readUsers(): StoredUser[] {
     for (const u of users) {
       if (u.email && u.email.toLowerCase().trim() === OWNER_EMAIL && u.role !== 'owner') {
         u.role = 'owner';
+        changed = true;
+      }
+      // Enforce strict BYOM isolation: remove legacy placeholder sessions and any uncredentialed enabledEngines
+      const realConnected = getConnectedExternalEngineIds(u);
+      const currentEnabled = Array.isArray(u.enabledEngines) ? u.enabledEngines : [];
+      if (
+        currentEnabled.length !== realConnected.length ||
+        currentEnabled.some((id) => !realConnected.includes(id as ExternalEngineId))
+      ) {
+        u.enabledEngines = realConnected;
+        u.connectedExternalEngines = realConnected;
+        changed = true;
+      }
+      if (u.syncedEngineSessions) {
+        delete u.syncedEngineSessions;
+        changed = true;
+      }
+      if (typeof u.hasConfiguredEngines !== 'boolean') {
+        u.hasConfiguredEngines = false;
         changed = true;
       }
     }
@@ -741,6 +933,11 @@ export async function registerUser(params: {
     role,
     skillLevel: params.skillLevel || 'Beginner',
     twoFactorEnabled: false,
+    enabledEngines: [],
+    connectedExternalEngines: [],
+    preferredExternalEngines: [],
+    externalCredentials: {},
+    hasConfiguredEngines: false,
     createdAt: now,
     lastLoginAt: now,
     salt,
@@ -750,7 +947,7 @@ export async function registerUser(params: {
   users.push(newUser);
   writeUsers(users);
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = newUser;
+  const userProfile = toSafeUserProfile(newUser);
   const { token, session } = createSessionRecord(userProfile, 'registered', params.clientInfo);
 
   logAuthEvent({
@@ -815,6 +1012,11 @@ export function verifyAndCompleteAuthenticatorSignup(params: {
     twoFactorEnabled: true,
     twoFactorSecret: challenge.rawSecret,
     backupCodes: finalBackupCodes,
+    enabledEngines: [],
+    connectedExternalEngines: [],
+    preferredExternalEngines: [],
+    externalCredentials: {},
+    hasConfiguredEngines: false,
     createdAt: now,
     lastLoginAt: now,
     salt: challenge.salt,
@@ -825,7 +1027,7 @@ export function verifyAndCompleteAuthenticatorSignup(params: {
   writeUsers(users);
 
   const clientInfo = params.clientInfo || challenge.clientInfo;
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = newUser;
+  const userProfile = toSafeUserProfile(newUser);
   const { token, session } = createSessionRecord(userProfile, 'registered', clientInfo);
 
   logAuthEvent({
@@ -873,6 +1075,11 @@ export function loginUser(params: {
         role: 'owner',
         skillLevel: 'Advanced',
         twoFactorEnabled: false,
+        enabledEngines: [],
+        connectedExternalEngines: [],
+        preferredExternalEngines: [],
+        externalCredentials: {},
+        hasConfiguredEngines: false,
         createdAt: now,
         lastLoginAt: now,
         salt,
@@ -912,7 +1119,7 @@ export function loginUser(params: {
       };
     }
 
-    const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = owner;
+    const userProfile = toSafeUserProfile(owner);
     const { token, session } = createSessionRecord(userProfile, 'registered', params.clientInfo);
 
     logAuthEvent({
@@ -991,7 +1198,7 @@ export function loginUser(params: {
     };
   }
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
+  const userProfile = toSafeUserProfile(user);
   const { token, session } = createSessionRecord(userProfile, 'registered', params.clientInfo);
 
   logAuthEvent({
@@ -1049,6 +1256,11 @@ export function loginGoogleUser(params: {
       role,
       skillLevel: 'Intermediate',
       twoFactorEnabled: false,
+      enabledEngines: [],
+      connectedExternalEngines: [],
+      preferredExternalEngines: [],
+      externalCredentials: {},
+      hasConfiguredEngines: false,
       createdAt: now,
       lastLoginAt: now,
       salt,
@@ -1095,7 +1307,7 @@ export function loginGoogleUser(params: {
     };
   }
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
+  const userProfile = toSafeUserProfile(user);
   const { token, session } = createSessionRecord(userProfile, 'google', params.clientInfo);
 
   logAuthEvent({
@@ -1130,6 +1342,11 @@ export function loginGuest(params: {
     role: 'viewer',
     skillLevel: 'Beginner',
     twoFactorEnabled: false,
+    enabledEngines: [],
+    connectedExternalEngines: [],
+    preferredExternalEngines: [],
+    externalCredentials: {},
+    hasConfiguredEngines: false,
     createdAt: now,
     lastLoginAt: now,
     salt: 'guest_salt',
@@ -1139,7 +1356,7 @@ export function loginGuest(params: {
   users.push(guestUser);
   writeUsers(users);
 
-  const { passwordHash: _, salt: __, ...userProfile } = guestUser;
+  const userProfile = toSafeUserProfile(guestUser);
   const { token, session } = createSessionRecord(userProfile, 'guest', params.clientInfo);
 
   logAuthEvent({
@@ -1244,7 +1461,9 @@ export function verifyTwoFactorChallenge(params: {
 
   pending2FAChallenges.delete(params.tempToken);
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
+  writeUsers(users);
+
+  const userProfile = toSafeUserProfile(user);
   const { token, session } = createSessionRecord(userProfile, challenge.accountType, challenge.clientInfo);
 
   logAuthEvent({
@@ -1285,8 +1504,7 @@ export function verifySession(token: string): UserProfile | null {
     user.role = 'owner';
   }
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
-  return userProfile;
+  return toSafeUserProfile(user);
 }
 
 export function recordHeartbeat(token: string): boolean {
@@ -1649,7 +1867,21 @@ export function getUserGroupedDevices(requestingUser: UserProfile, currentDevice
   };
 
   const processUser = (
-    u: { id: string; name: string; email: string; role: UserRole; avatar?: string; skillLevel?: string; createdAt?: string; lastLoginAt?: string; twoFactorEnabled?: boolean },
+    u: {
+      id: string;
+      name: string;
+      email: string;
+      role: UserRole;
+      avatar?: string;
+      skillLevel?: string;
+      createdAt?: string;
+      lastLoginAt?: string;
+      twoFactorEnabled?: boolean;
+      externalCredentials?: StoredUser['externalCredentials'];
+      enabledEngines?: ConnectorEngineId[];
+      hasConfiguredEngines?: boolean;
+      syncedEngineSessions?: Record<string, SyncedEngineSession>;
+    },
     accountType: 'registered' | 'google' | 'guest'
   ): UserGroupedDevicesRecord => {
     const emailLower = (u.email || '').toLowerCase().trim();
@@ -1826,6 +2058,10 @@ export function getUserGroupedDevices(requestingUser: UserProfile, currentDevice
       lastLoginAt: newestLastLogin,
       createdAt: u.createdAt || newestLastLogin,
       twoFactorEnabled: Boolean(u.twoFactorEnabled),
+      connectedExternalEngines: getConnectedExternalEngineIds(u),
+      enabledEngines: getConnectedExternalEngineIds(u),
+      externalConnections: buildSafeExternalConnections(u),
+      hasConfiguredEngines: Boolean(u.hasConfiguredEngines),
       devices: devicesList
     };
   };
@@ -2017,7 +2253,7 @@ export function getUserDetailHistory(targetUserIdOrEmail: string, requestingUser
     });
   }
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...safeProfile } = targetUser;
+  const safeProfile = toSafeUserProfile(targetUser);
 
   return {
     user: safeProfile,
@@ -2042,6 +2278,181 @@ export function getUserDetailHistory(targetUserIdOrEmail: string, requestingUser
       entryRoute: s.entryRoute || '/',
       status: s.status
     }))
+  };
+}
+
+// -------------------------------------------------------------
+// External BYOM AI Connectivity & Onboarding Management
+// -------------------------------------------------------------
+
+export function completeExternalEngineOnboarding(
+  userId: string,
+  params: { preferredExternalEngines?: unknown; skipped?: boolean },
+  requestingUser: UserProfile
+): UserProfile {
+  if (requestingUser.id !== userId && requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized to update AI onboarding preferences');
+  }
+
+  const users = readUsers();
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+
+  const user = users[userIndex];
+  user.hasConfiguredEngines = true;
+  if (params.skipped) {
+    user.preferredExternalEngines = [];
+  } else if (Array.isArray(params.preferredExternalEngines)) {
+    user.preferredExternalEngines = normalizeConnectorEngines(params.preferredExternalEngines);
+  }
+  // Never store placeholder credentials or mark non-verified engines connected
+  const connected = getConnectedExternalEngineIds(user);
+  user.enabledEngines = connected;
+  user.connectedExternalEngines = connected;
+
+  writeUsers(users);
+  return toSafeUserProfile(user);
+}
+
+export function saveVerifiedExternalEngineCredential(
+  userId: string,
+  params: {
+    engineId: ExternalEngineId;
+    apiKey: string;
+    endpointUrl?: string;
+    modelName?: string;
+  },
+  requestingUser: UserProfile
+): UserProfile {
+  if (requestingUser.id !== userId && requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized to connect external AI engine');
+  }
+
+  if (!SUPPORTED_EXTERNAL_ENGINES.includes(params.engineId)) {
+    throw new Error(`Unsupported external AI engine: ${params.engineId}`);
+  }
+
+  const cleanKey = (params.apiKey || '').trim();
+  if (!cleanKey) {
+    throw new Error('A valid API key is required.');
+  }
+
+  const users = readUsers();
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+
+  const user = users[userIndex];
+  if (!user.externalCredentials) {
+    user.externalCredentials = {};
+  }
+
+  const now = new Date().toISOString();
+  const encrypted = encryptSecret(cleanKey);
+
+  user.externalCredentials[params.engineId] = {
+    engineId: params.engineId,
+    encryptedApiKey: encrypted.encryptedApiKey,
+    iv: encrypted.iv,
+    authTag: encrypted.authTag,
+    maskedKey: maskApiKey(cleanKey),
+    endpointUrl: params.endpointUrl?.trim() || undefined,
+    modelName: params.modelName?.trim() || undefined,
+    connectedAt: user.externalCredentials[params.engineId]?.connectedAt || now,
+    lastVerifiedAt: now
+  };
+
+  user.hasConfiguredEngines = true;
+  const connected = getConnectedExternalEngineIds(user);
+  user.enabledEngines = connected;
+  user.connectedExternalEngines = connected;
+
+  writeUsers(users);
+  return toSafeUserProfile(user);
+}
+
+export function disconnectExternalEngineCredential(
+  userId: string,
+  engineId: ExternalEngineId,
+  requestingUser: UserProfile
+): UserProfile {
+  if (requestingUser.id !== userId && requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized to disconnect external AI engine');
+  }
+
+  if (!SUPPORTED_EXTERNAL_ENGINES.includes(engineId)) {
+    throw new Error(`Unsupported external AI engine: ${engineId}`);
+  }
+
+  const users = readUsers();
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+
+  const user = users[userIndex];
+  if (user.externalCredentials && user.externalCredentials[engineId]) {
+    delete user.externalCredentials[engineId];
+  }
+
+  if (Array.isArray(user.preferredExternalEngines)) {
+    user.preferredExternalEngines = user.preferredExternalEngines.filter(id => id !== engineId);
+  }
+
+  const connected = getConnectedExternalEngineIds(user);
+  user.enabledEngines = connected;
+  user.connectedExternalEngines = connected;
+
+  writeUsers(users);
+  return toSafeUserProfile(user);
+}
+
+export function getUserDecryptedExternalCredential(
+  userId: string,
+  engineId: ExternalEngineId
+): { apiKey: string; endpointUrl?: string; modelName?: string } | null {
+  const users = readUsers();
+  const user = users.find(u => u.id === userId);
+  const record = user?.externalCredentials?.[engineId];
+  if (!record || !record.encryptedApiKey) {
+    return null;
+  }
+  try {
+    const apiKey = decryptSecret(record);
+    if (!apiKey) return null;
+    return {
+      apiKey,
+      endpointUrl: record.endpointUrl,
+      modelName: record.modelName
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function getUserEngineStatus(userId: string): {
+  connectedExternalEngines: ExternalEngineId[];
+  enabledEngines: ConnectorEngineId[];
+  externalConnections: Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>>;
+  preferredExternalEngines: ExternalEngineId[];
+  hasConfiguredEngines: boolean;
+} {
+  const users = readUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const connected = getConnectedExternalEngineIds(user);
+  return {
+    connectedExternalEngines: connected,
+    enabledEngines: connected,
+    externalConnections: buildSafeExternalConnections(user),
+    preferredExternalEngines: normalizeConnectorEngines(user.preferredExternalEngines),
+    hasConfiguredEngines: Boolean(user.hasConfiguredEngines)
   };
 }
 
@@ -2076,8 +2487,7 @@ export function updateUserProfile(
   }
 
   writeUsers(users);
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = user;
-  return userProfile;
+  return toSafeUserProfile(user);
 }
 
 export function updateUserRole(
@@ -2324,7 +2734,7 @@ export function getAllUsers(requestingUser: UserProfile): UserProfile[] {
   }
 
   const users = readUsers();
-  return users.map(({ passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...profile }) => profile);
+  return users.map(toSafeUserProfile);
 }
 
 export function submitFeedback(params: {

@@ -19,16 +19,18 @@ import { FeedbackModal } from './components/FeedbackModal';
 import { GoogleLoginWindow } from './components/GoogleLoginWindow';
 import { SettingsModal } from './components/SettingsModal';
 import { TwoFactorModal } from './components/TwoFactorModal';
+import { EngineConnectorModal } from './components/EngineConnectorModal';
 import { useAuth } from './context/AuthContext';
 import { useWebSocket } from './context/WebSocketContext';
 import { resolveUserGreetingName } from './utils/userName';
+import { UserAvatar } from './components/UserAvatar';
 import { AIEngineBadge } from './components/AIEngineBadge';
 import { GeminiResponseActions } from './components/GeminiResponseActions';
 import { GeminiSolutionView } from './components/GeminiSolutionView';
 import { SubmittedCodeErrorHighlighter } from './components/SubmittedCodeErrorHighlighter';
 import { SearchEngineFallbackBanner } from './components/SearchEngineFallbackBanner';
 import { renderEngineIcon } from './components/AIEngineIcons';
-import { AI_ENGINES } from './constants/aiEngines';
+import { DEFAULT_BUILTIN_ENGINE_ID, getEngineById } from './constants/aiEngines';
 import { 
   AnalysisMode, 
   PythonDecodeResponse, 
@@ -144,7 +146,7 @@ function renderDocumentBadge(doc: AttachedDocument) {
 }
 
 export default function App() {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, token, connectedExternalEngines, openSettingsModal } = useAuth();
   const { lastMessage } = useWebSocket();
 
   // App configuration synchronized live across all users
@@ -188,11 +190,21 @@ export default function App() {
   const [activeMode, setActiveMode] = useState<AnalysisMode>('both');
   const [activeTab, setActiveTab] = useState<'all' | 'diff' | 'functions' | 'flowchart' | 'theory' | 'terminal' | 'trace'>('all');
 
-  // Multi-AI Engine State (Microsoft Copilot, ChatGPT, Gemini, Perplexity, Blackbox AI, DeepSeek, Turbo)
-  const [selectedEngine, setSelectedEngine] = useState<AIEngineId>('gemini');
+  // Multi-AI Engine State (Turbo AI default; external BYOM opt-in)
+  const [selectedEngine, setSelectedEngine] = useState<AIEngineId>(DEFAULT_BUILTIN_ENGINE_ID);
   const [preferredSearchEngine, setPreferredSearchEngine] = useState<SearchEngineType>('google');
   const [isEngineModalOpen, setIsEngineModalOpen] = useState<boolean>(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState<boolean>(false);
+
+  // Keep active selectedEngine aligned with Turbo AI or user's connected external engines
+  useEffect(() => {
+    if (
+      selectedEngine !== DEFAULT_BUILTIN_ENGINE_ID &&
+      !connectedExternalEngines.includes(selectedEngine as any)
+    ) {
+      setSelectedEngine(DEFAULT_BUILTIN_ENGINE_ID);
+    }
+  }, [connectedExternalEngines, selectedEngine]);
 
   // Multi-Chat Sessions Management (Requirement 2)
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
@@ -216,7 +228,7 @@ export default function App() {
             attachments: item.attachments || [],
             analysisResult: item.analysisResult,
             quickPyOutput: item.quickPyOutput,
-            engine: item.engine || 'gemini',
+            engine: item.engine || DEFAULT_BUILTIN_ENGINE_ID,
             mode: item.mode || 'both',
             isPythonRestricted: item.analysisResult?.isPythonRestricted
           };
@@ -226,7 +238,7 @@ export default function App() {
             createdAt: item.createdAt || new Date().toISOString(),
             updatedAt: item.createdAt || new Date().toISOString(),
             messages: [msg],
-            engine: item.engine || 'gemini',
+            engine: item.engine || DEFAULT_BUILTIN_ENGINE_ID,
             mode: item.mode || 'both'
           };
         });
@@ -361,8 +373,9 @@ export default function App() {
   };
 
   // Requirement 4, 6, 7, 8: Enter-to-send message handler
-  const handleSendMessage = async (rawText: string, attachments: AttachedDocument[]) => {
+  const handleSendMessage = async (rawText: string, attachments: AttachedDocument[], overrideEngine?: AIEngineId) => {
     if (!rawText.trim() && attachments.length === 0) return;
+    const activeEngineToUse: AIEngineId = overrideEngine || selectedEngine;
 
     const { code: parsedCode, question: parsedQuestion } = parseUserInput(rawText);
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -395,23 +408,19 @@ export default function App() {
     setLoading(true);
     setErrorMessage(null);
 
-    // Retrieve any custom API keys
-    let customApiKeys = {};
     try {
-      const stored = localStorage.getItem('pycode_custom_api_keys');
-      if (stored) customApiKeys = JSON.parse(stored);
-    } catch {}
-
-    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           code: parsedCode,
           question: parsedQuestion,
           preferredMode: activeMode,
-          engine: selectedEngine,
-          customApiKeys,
+          engine: activeEngineToUse,
           attachedDocs: attachments.map(d => ({ name: d.name, type: d.type, size: d.size })),
           preferredSearchEngine
         })
@@ -441,7 +450,7 @@ export default function App() {
         code: parsedCode,
         analysisResult: data,
         quickPyOutput: data.realExecution,
-        engine: selectedEngine,
+        engine: activeEngineToUse,
         mode: data.mode || activeMode,
         isPythonRestricted: data.isPythonRestricted,
         isInvalidQuery: data.isInvalidQuery,
@@ -463,7 +472,7 @@ export default function App() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             messages: [userMsg, assistantMsg],
-            engine: selectedEngine,
+            engine: activeEngineToUse,
             mode: activeMode
           };
           updated = [newSession, ...prevSessions];
@@ -526,7 +535,7 @@ ${analysisResult.expectedOutput}`;
     setTimeout(() => setCopiedAll(false), 2000);
   };
 
-  const currentEngineObj = AI_ENGINES.find(e => e.id === selectedEngine) || AI_ENGINES[0];
+  const currentEngineObj = getEngineById(selectedEngine);
 
   // Loading state while restoring saved token
   if (isLoading) {
@@ -589,6 +598,9 @@ ${analysisResult.expectedOutput}`;
 
       {/* Two-Factor Authentication Modal */}
       <TwoFactorModal />
+
+      {/* Post-Login Selective AI Engine Connector Modal */}
+      <EngineConnectorModal />
 
       {/* Left Sidebar with Multiple Chats and Date Groups */}
       <GeminiSidebar
@@ -708,11 +720,17 @@ ${analysisResult.expectedOutput}`;
                     <div key={msg.id || index} id={`user-msg-${msg.id || index}`} className="w-full pt-4 pb-4 border-b border-[#222426] animate-in fade-in duration-200">
                       <div className="space-y-3">
                         <div className="flex items-center justify-between text-xs text-[#8e918f]">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-sky-500 via-indigo-500 to-emerald-500 text-white flex items-center justify-center font-bold text-[10px] shadow-xs">
-                              {user?.avatar || (greetingName ? greetingName[0].toUpperCase() : 'U')}
-                            </div>
-                            <span className="font-medium text-[#c4c7c5]">{greetingName}</span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <UserAvatar
+                              avatar={user?.avatar}
+                              name={greetingName}
+                              email={user?.email}
+                              sizeClass="w-6 h-6"
+                              roundedClass="rounded-full"
+                              textClass="text-[10px]"
+                              className="shadow-xs"
+                            />
+                            <span className="font-medium text-[#c4c7c5] truncate">{greetingName}</span>
                           </div>
                           <span className="text-[11px] font-mono text-[#66686b]">{msg.timestamp}</span>
                         </div>
@@ -790,7 +808,7 @@ ${analysisResult.expectedOutput}`;
                         onQuickReAnalyze={(eng) => {
                           setSelectedEngine(eng);
                           if (msg.question || msg.code) {
-                            handleSendMessage(msg.question || '', msg.attachments || []);
+                            handleSendMessage(msg.question || '', msg.attachments || [], eng);
                           }
                         }}
                       />
@@ -842,7 +860,7 @@ ${analysisResult.expectedOutput}`;
             loading={loading}
             selectedEngine={selectedEngine}
             onSelectEngine={setSelectedEngine}
-            onOpenEngineSettings={() => setIsEngineModalOpen(true)}
+            onOpenEngineSettings={() => openSettingsModal('connectivity')}
           />
         </div>
       </div>

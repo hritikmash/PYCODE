@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth, SavedGoogleAccount } from '../context/AuthContext';
 import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
+import { UserAvatar } from './UserAvatar';
 
 const OWNER_EMAIL = 'hritikyadav1612@gmail.com';
 
@@ -193,15 +194,15 @@ export const GoogleLoginWindow: React.FC = () => {
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       {/* Avatar */}
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center font-semibold text-xs overflow-hidden shrink-0 border border-white/10">
-                        {acc.avatar && acc.avatar.startsWith('http') ? (
-                          <img src={acc.avatar} alt={acc.name} className="w-full h-full object-cover" />
-                        ) : acc.avatar ? (
-                          <span>{acc.avatar}</span>
-                        ) : (
-                          <span>{acc.name ? acc.name[0]?.toUpperCase() : 'G'}</span>
-                        )}
-                      </div>
+                      <UserAvatar
+                        avatar={acc.avatar}
+                        name={acc.name}
+                        email={acc.email}
+                        sizeClass="w-9 h-9"
+                        roundedClass="rounded-full"
+                        textClass="text-xs"
+                        className="border border-white/10"
+                      />
                       <div className="min-w-0 text-left">
                         <div className="text-xs font-medium text-white truncate group-hover:text-[#8ab4f8] transition-colors">
                           {acc.name || 'Google User'}

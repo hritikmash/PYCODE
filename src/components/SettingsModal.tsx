@@ -32,11 +32,19 @@ import {
   Shield,
   UserPlus,
   Info,
-  Save
+  Save,
+  PlugZap
 } from 'lucide-react';
 import { useAuth, UserProfile } from '../context/AuthContext';
-import { AI_ENGINES } from '../constants/aiEngines';
+import {
+  AI_ENGINES,
+  BUILTIN_DEFAULT_ENGINE,
+  EXTERNAL_ENGINES,
+  getAvailableWorkspaceEngines
+} from '../constants/aiEngines';
 import { AIEngineId, SearchEngineType } from '../types';
+import { UserAvatar } from './UserAvatar';
+import { AIConnectivityHub } from './EngineConnectorModal';
 
 interface SettingsModalProps {
   selectedEngine: AIEngineId;
@@ -60,6 +68,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     isAdmin, 
     token, 
     deviceId,
+    connectedExternalEngines,
     updateProfile, 
     toggle2FA, 
     logoutAllDevices,
@@ -120,7 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [cfgBannerEnabled, setCfgBannerEnabled] = useState(false);
   const [cfgBannerMessage, setCfgBannerMessage] = useState('');
   const [cfgBannerType, setCfgBannerType] = useState<'info' | 'warning' | 'success'>('info');
-  const [cfgDefaultEngine, setCfgDefaultEngine] = useState<AIEngineId>('gemini');
+  const [cfgDefaultEngine, setCfgDefaultEngine] = useState<AIEngineId>('turbo_race');
   const [cfgDefaultMode, setCfgDefaultMode] = useState<'both' | 'code_only' | 'theory_only'>('both');
   const [cfgSandboxEnabled, setCfgSandboxEnabled] = useState(true);
   const [cfgFlowchartsEnabled, setCfgFlowchartsEnabled] = useState(true);
@@ -340,7 +349,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           setCfgBannerEnabled(Boolean(data.config.announcementBanner?.enabled));
           setCfgBannerMessage(data.config.announcementBanner?.message || '');
           setCfgBannerType(data.config.announcementBanner?.type || 'info');
-          setCfgDefaultEngine(data.config.defaultEngine || 'gemini-3.8-flash');
+          setCfgDefaultEngine(data.config.defaultEngine || 'turbo_race');
           setCfgDefaultMode(data.config.defaultMode || 'both');
           setCfgSandboxEnabled(data.config.features?.sandboxExecution !== false);
           setCfgFlowchartsEnabled(data.config.features?.interactiveFlowcharts !== false);
@@ -496,7 +505,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               >
                 <Sliders className="w-3.5 h-3.5" />
-                <span>General & Engines</span>
+                <span>General</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('connectivity')}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                  activeTab === 'connectivity'
+                    ? 'bg-[#20b8cd]/15 text-[#20b8cd] font-semibold border border-[#20b8cd]/30'
+                    : 'text-[#9e9e9e] hover:text-white hover:bg-[#202222]'
+                }`}
+              >
+                <span className="flex items-center gap-2.5">
+                  <PlugZap className="w-3.5 h-3.5" />
+                  <span>AI Connectivity</span>
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                    connectedExternalEngines.length > 0
+                      ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/50'
+                      : 'bg-[#202222] text-[#858585]'
+                  }`}
+                >
+                  {connectedExternalEngines.length}/{EXTERNAL_ENGINES.length}
+                </span>
               </button>
 
               <button
@@ -654,14 +687,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* User info at bottom of sidebar */}
-          <div className="pt-4 border-t border-[#242828] px-2 flex items-center justify-between">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <div className="w-6 h-6 rounded-full bg-[#242828] text-xs flex items-center justify-center shrink-0">
-                {user?.avatar || '👤'}
-              </div>
-              <div className="truncate text-left">
-                <span className="text-xs font-medium text-white block truncate">{user?.name || 'User'}</span>
-                <span className="text-[10px] text-[#858585] capitalize block">{user?.role || 'Viewer'}</span>
+          <div className="pt-4 border-t border-[#242828] px-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 overflow-hidden min-w-0 flex-1">
+              <UserAvatar
+                avatar={user?.avatar}
+                name={user?.name}
+                email={user?.email}
+                sizeClass="w-8 h-8"
+                roundedClass="rounded-full"
+                textClass="text-xs"
+              />
+              <div className="min-w-0 flex-1 text-left">
+                <span className="text-sm font-medium text-white block truncate">{user?.name || 'User'}</span>
+                <span className="text-xs text-[#858585] capitalize block truncate">{user?.role || 'Viewer'}</span>
               </div>
             </div>
             <button
@@ -681,16 +719,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'general' && (
             <div className="space-y-6 animate-in fade-in duration-150">
               <div>
-                <h3 className="text-base font-semibold text-white">General & AI Model Preferences</h3>
-                <p className="text-xs text-[#9e9e9e] mt-0.5">Customize your active reasoning engine and search grounding provider.</p>
+                <h3 className="text-base font-semibold text-white">General &amp; Workspace Preferences</h3>
+                <p className="text-xs text-[#9e9e9e] mt-0.5">Select your active workspace AI model, search provider, and editor preferences.</p>
               </div>
 
-              {/* Default AI Engine Selector */}
+              {/* AI Connectivity Summary CTA */}
+              <div className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <PlugZap className="w-4 h-4 text-[#20b8cd]" />
+                    <span className="text-xs font-semibold text-white">AI Connectivity Hub (BYOM)</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#20b8cd]/10 text-[#20b8cd] border border-[#20b8cd]/30">
+                      {connectedExternalEngines.length} External Connected
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#858585]">
+                    <strong>Turbo AI</strong> is active by default. Connect or disconnect Google Gemini, Perplexity, DeepSeek, Copilot, Groq, or OpenAI with your own API keys.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('connectivity')}
+                  className="px-3.5 py-2 rounded-xl bg-[#1e1f20] hover:bg-[#282a2c] border border-[#20b8cd]/40 text-xs font-medium text-[#20b8cd] hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
+                >
+                  <span>Manage AI Connectivity</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Active Workspace AI Engine Selector (Turbo AI Default + Connected External Only) */}
               <div className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] space-y-3">
-                <label className="text-xs font-semibold text-white block">Default AI Engine</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-semibold text-white block">Active Workspace Engine</label>
+                  <span className="text-[11px] text-emerald-400 font-mono">
+                    {1 + connectedExternalEngines.length} Ready (Turbo AI + {connectedExternalEngines.length} External)
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {AI_ENGINES.map((engine) => {
+                  {getAvailableWorkspaceEngines(connectedExternalEngines).map((engine) => {
                     const isSelected = engine.id === selectedEngine;
+                    const isDefault = engine.id === BUILTIN_DEFAULT_ENGINE.id;
                     return (
                       <button
                         key={engine.id}
@@ -702,9 +770,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             : 'bg-[#191a1a] border-[#2d3131] hover:border-[#3d4245] text-[#9e9e9e] hover:text-white'
                         }`}
                       >
-                        <div className="space-y-0.5">
-                          <span className="text-xs font-semibold block text-white">{engine.name}</span>
-                          <span className="text-[11px] text-[#858585] block">{engine.description}</span>
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                            <span className="text-xs font-semibold block text-white truncate">{engine.shortName || engine.name}</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#131414] border border-[#2d3131] text-[#9e9e9e] shrink-0">
+                              {isDefault ? 'Default' : 'External • User Key'}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-[#858585] block truncate">{engine.tagline}</span>
                         </div>
                         {isSelected && <Check className="w-4 h-4 text-[#20b8cd] shrink-0 ml-2" />}
                       </button>
@@ -757,6 +831,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB: AI CONNECTIVITY HUB (BYOM) */}
+          {activeTab === 'connectivity' && (
+            <div className="space-y-5 animate-in fade-in duration-150">
+              <div>
+                <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                  <PlugZap className="w-4 h-4 text-[#20b8cd]" />
+                  <span>AI Connectivity Hub (External BYOM)</span>
+                </h3>
+                <p className="text-xs text-[#9e9e9e] mt-0.5">
+                  Manage external Bring-Your-Own-Model API credentials. Every external engine requires verifying your personal API key and never uses server/owner tokens.
+                </p>
+              </div>
+
+              <AIConnectivityHub compact />
             </div>
           )}
 
@@ -1375,14 +1466,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         key={u.id}
                         className="p-3.5 rounded-2xl bg-[#131414] border border-[#2d3131] hover:border-[#383c3c] flex items-center justify-between gap-3 text-xs"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 rounded-full bg-[#202222] flex items-center justify-center shrink-0 text-sm">
-                            {u.avatar || '👤'}
-                          </div>
-                          <div className="truncate">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-white truncate">{u.name || 'User'}</span>
-                              <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono ${
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <UserAvatar
+                            avatar={u.avatar}
+                            name={u.name}
+                            email={u.email}
+                            sizeClass="w-9 h-9"
+                            roundedClass="rounded-full"
+                            textClass="text-xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm font-semibold text-white truncate">{u.name || 'User'}</span>
+                              <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono shrink-0 ${
                                 u.role === 'owner' ? 'bg-amber-950/80 text-amber-300 border border-amber-600/40' :
                                 u.role === 'admin' ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-600/40' :
                                 'bg-[#202222] text-[#9e9e9e]'
@@ -1390,7 +1486,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 {u.role}
                               </span>
                             </div>
-                            <span className="text-[11px] text-[#858585] block truncate font-mono">{u.email}</span>
+                            <span className="text-xs text-[#858585] block truncate font-mono">{u.email}</span>
                           </div>
                         </div>
 

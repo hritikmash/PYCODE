@@ -9,7 +9,10 @@
     "createdAt": "2026-10-28T10:01:28.258Z",
     "lastLoginAt": "2026-10-28T10:01:28.325Z",
     "passwordHash": "46b94c67a2e3b333eab19f6c59751903947dc60eb811956e08e82fe7f6a96f1990ecb2a966aa11e9f34ee0e76c0eee92b0678a602436e1932c7a8eff03e66452",
-    "salt": "ce022a5999c2d659d4302ebc52711b93"
+    "salt": "ce022a5999c2d659d4302ebc52711b93",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1793181694373_4029ab27",
@@ -21,7 +24,10 @@
     "createdAt": "2026-10-28T10:01:34.373Z",
     "lastLoginAt": "2026-10-28T10:01:34.373Z",
     "salt": "35dd9026fad9d339a16eafc4ccde6c97",
-    "passwordHash": "88c7db67e07d8b564b3817fc6bce3fb70b8a3bdc94b93d0ecf25ef962a9312b7755162076c0075bc31b9ab152c4170b0825157924486aa1c308df8ff91cfa3ed"
+    "passwordHash": "88c7db67e07d8b564b3817fc6bce3fb70b8a3bdc94b93d0ecf25ef962a9312b7755162076c0075bc31b9ab152c4170b0825157924486aa1c308df8ff91cfa3ed",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_guest_1793181699483_3163",
@@ -33,7 +39,10 @@
     "createdAt": "2026-10-28T10:01:39.483Z",
     "lastLoginAt": "2026-10-28T10:01:39.483Z",
     "salt": "7fd7817b623ebef3c4aaa4fbdfd43b56",
-    "passwordHash": "6ff60e8e773214d9b68ebcd157bfe1fcff8c91ff5073be7bc7f23f98bb7d195dbbcbeb3588fecbdaa21e30fa42bacb2c9215da3928f4a8f160dbb5759c1b6317"
+    "passwordHash": "6ff60e8e773214d9b68ebcd157bfe1fcff8c91ff5073be7bc7f23f98bb7d195dbbcbeb3588fecbdaa21e30fa42bacb2c9215da3928f4a8f160dbb5759c1b6317",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_google_1793251226075_c9105760",
@@ -43,11 +52,14 @@
     "role": "owner",
     "skillLevel": "Intermediate",
     "createdAt": "2026-10-29T05:20:25.988Z",
-    "lastLoginAt": "2026-11-11T19:43:09.395Z",
+    "lastLoginAt": "2026-11-18T17:14:18.036Z",
     "salt": "03ff6d5d50f479c5b5bc1bd930b54b36",
     "passwordHash": "abc0b8abaa91abe9fd9df7e944f3da6656a145d1482ae9908da5f7ef1894cdaef8d7f75a7ac463cae7d0a9b5f08354c96f5c3ca157c18b0639eb7c06c1b3adf4",
     "twoFactorEnabled": false,
-    "backupCodes": []
+    "backupCodes": [],
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1793258875800_95444249",
@@ -59,7 +71,10 @@
     "createdAt": "2026-10-29T07:27:55.800Z",
     "lastLoginAt": "2026-10-29T07:27:55.800Z",
     "salt": "60e8cd05965d29295fcb0a153963031f",
-    "passwordHash": "ad7f5d09e001510ea513a35c0bf2902d28b85ddaf97e7b378265590bfad642f9c559b72781ddfccb9a6e17d05d4e4c142c04942f1bffa99436a0747fd48751c7"
+    "passwordHash": "ad7f5d09e001510ea513a35c0bf2902d28b85ddaf97e7b378265590bfad642f9c559b72781ddfccb9a6e17d05d4e4c142c04942f1bffa99436a0747fd48751c7",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_google_1793261832756_ce69a39b",
@@ -71,7 +86,10 @@
     "createdAt": "2026-10-29T08:17:12.673Z",
     "lastLoginAt": "2026-10-29T08:17:12.673Z",
     "salt": "477e0a8c7cdca3667d07f1ac097e36e5",
-    "passwordHash": "dcdf4e3944616afca4779610317e936cb1c2586f67aae249c5387ea50cf239e970092003a44f73cefaf1e4d322f83072f588aae66389ef7370a62e5fa4fd5df7"
+    "passwordHash": "dcdf4e3944616afca4779610317e936cb1c2586f67aae249c5387ea50cf239e970092003a44f73cefaf1e4d322f83072f588aae66389ef7370a62e5fa4fd5df7",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1793382513074_2f49936c",
@@ -83,7 +101,10 @@
     "createdAt": "2026-10-30T17:48:33.074Z",
     "lastLoginAt": "2026-10-30T17:48:33.224Z",
     "salt": "22f1837fc66f536758bad7779c8ed161",
-    "passwordHash": "ac4ceecef407e7a92cd129a8aedbca607678265fdca155691edc2a9953648ae639ba351f5b72186037a2ef4cce7cd31761df5a952fe6363be26cb2c231c14191"
+    "passwordHash": "ac4ceecef407e7a92cd129a8aedbca607678265fdca155691edc2a9953648ae639ba351f5b72186037a2ef4cce7cd31761df5a952fe6363be26cb2c231c14191",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_guest_1793382513150_5823",
@@ -95,7 +116,10 @@
     "createdAt": "2026-10-30T17:48:33.150Z",
     "lastLoginAt": "2026-10-30T17:48:33.150Z",
     "salt": "9db085d7264d07646e6d09cacdd500dc",
-    "passwordHash": "0265fc9fa46fc2453d3020bc45c9c8b90e26b220e4059977c055d6d42e4cc2baaf0d5e24083322ff246ac8352176c7234aa2e1b5a04408e7ba77e2ea97544820"
+    "passwordHash": "0265fc9fa46fc2453d3020bc45c9c8b90e26b220e4059977c055d6d42e4cc2baaf0d5e24083322ff246ac8352176c7234aa2e1b5a04408e7ba77e2ea97544820",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1793382634091_91d04a91",
@@ -107,7 +131,10 @@
     "createdAt": "2026-10-30T17:50:34.091Z",
     "lastLoginAt": "2026-10-30T17:50:34.091Z",
     "salt": "c5c82cf537162fdbce2917803b9f55e5",
-    "passwordHash": "5387d1b6e44057eec32a133b5b2b7e661ac892a8480aeaf006a892222783f5aff46e14ab6f251cd6e0ad33e1bbc8fcd289eecffacd9433b2a3f56ec28f9818ca"
+    "passwordHash": "5387d1b6e44057eec32a133b5b2b7e661ac892a8480aeaf006a892222783f5aff46e14ab6f251cd6e0ad33e1bbc8fcd289eecffacd9433b2a3f56ec28f9818ca",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_google_1793384233998_f167555f",
@@ -119,7 +146,10 @@
     "createdAt": "2026-10-30T18:17:13.914Z",
     "lastLoginAt": "2026-10-30T18:17:14.019Z",
     "salt": "2f1284fec9455bab70a3ecd548b256d0",
-    "passwordHash": "ff846bdf148a71b8690e7ca42501424530d03d41fd5a189a8de72d73b0afd2f09a6a0510bb5252857e9db0c47a9c5bd5ef181f4a660241d2a3affb8025f833c5"
+    "passwordHash": "ff846bdf148a71b8690e7ca42501424530d03d41fd5a189a8de72d73b0afd2f09a6a0510bb5252857e9db0c47a9c5bd5ef181f4a660241d2a3affb8025f833c5",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_google_1793385128439_ee7c4511",
@@ -131,7 +161,10 @@
     "createdAt": "2026-10-30T18:32:08.353Z",
     "lastLoginAt": "2026-10-30T18:32:08.353Z",
     "salt": "d672e9b2a7734ace99a3c4617b42fd45",
-    "passwordHash": "ae5e94a8aacdc6462f7fc62625bb8e03001312045cdcb22ace4a4b9131ce3792837446205616db31e22ce57d6c61a1d370f4ad21456bfc593d3d48ee98c3f53f"
+    "passwordHash": "ae5e94a8aacdc6462f7fc62625bb8e03001312045cdcb22ace4a4b9131ce3792837446205616db31e22ce57d6c61a1d370f4ad21456bfc593d3d48ee98c3f53f",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_google_1793385441126_0104b035",
@@ -143,7 +176,10 @@
     "createdAt": "2026-10-30T18:37:21.044Z",
     "lastLoginAt": "2026-10-30T18:37:21.044Z",
     "salt": "83d40603a29ad34f68ee396ad14c2d07",
-    "passwordHash": "64b210e01fbff83e7a45ba3779a2e86d484db23f01ca5ae5412af47fe5b00acaf65f47a048b9e51bc383040bef522e2c318289e5d63adfa7ad5383930c97a1c9"
+    "passwordHash": "64b210e01fbff83e7a45ba3779a2e86d484db23f01ca5ae5412af47fe5b00acaf65f47a048b9e51bc383040bef522e2c318289e5d63adfa7ad5383930c97a1c9",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_google_1793385473355_ebc8af15",
@@ -155,7 +191,10 @@
     "createdAt": "2026-10-30T18:37:53.277Z",
     "lastLoginAt": "2026-10-30T18:37:53.277Z",
     "salt": "175ae43ad3d0b55539ebe668ca5d101d",
-    "passwordHash": "66073f47b163f263f0dc7c6b2ea391755638816821341ec48c44b141a0cf371e63fdbecf4ea10d663c5c40ab058898cef9ee50509b46750313f68add422867a9"
+    "passwordHash": "66073f47b163f263f0dc7c6b2ea391755638816821341ec48c44b141a0cf371e63fdbecf4ea10d663c5c40ab058898cef9ee50509b46750313f68add422867a9",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_mw1rq3jc_03e245",
@@ -167,7 +206,10 @@
     "createdAt": "2026-11-04T07:01:18.312Z",
     "lastLoginAt": "2026-11-04T07:01:18.312Z",
     "passwordHash": "ef66cd014544211c742c2342eb61cb114b570404a9eb6962d24047b12e7b8a67fa86350b91343366d7709e224e271f41d4bcbdcb811b63b7336ef979a685298d",
-    "salt": "9cc0225d7fab9bb2ef41592110b97e1a"
+    "salt": "9cc0225d7fab9bb2ef41592110b97e1a",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1794246804286_0a99eb85",
@@ -180,7 +222,10 @@
     "createdAt": "2026-11-09T17:53:24.286Z",
     "lastLoginAt": "2026-11-09T17:53:24.286Z",
     "salt": "11ed20ae728c648ec491ac268f14c08a",
-    "passwordHash": "3fecbe174aebe87544dd80d54c9e12720827d10b2b8ef7266d9b04b75111089c22e5252d67c212cb8d4383d0c626319cb3b62de30650979d02412b25d91b54f0"
+    "passwordHash": "3fecbe174aebe87544dd80d54c9e12720827d10b2b8ef7266d9b04b75111089c22e5252d67c212cb8d4383d0c626319cb3b62de30650979d02412b25d91b54f0",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1794246816163_b4936056",
@@ -201,7 +246,10 @@
     "createdAt": "2026-11-09T17:53:36.163Z",
     "lastLoginAt": "2026-11-09T17:53:36.256Z",
     "salt": "5098dca6e6b718ee6010b871c8969df6",
-    "passwordHash": "485b0d05e1cb6b48259ecc8978226d0ba80e8f9d3e9d140b8d53f245d3e52c5e2288b61898f0eb3ec441367c95eddfeaa2b1a1cace4dfb164c3a86b2a677d992"
+    "passwordHash": "485b0d05e1cb6b48259ecc8978226d0ba80e8f9d3e9d140b8d53f245d3e52c5e2288b61898f0eb3ec441367c95eddfeaa2b1a1cace4dfb164c3a86b2a677d992",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
   },
   {
     "id": "usr_1794246822882_6eaec99a",
@@ -214,6 +262,27 @@
     "createdAt": "2026-11-09T17:53:42.882Z",
     "lastLoginAt": "2026-11-09T17:53:42.882Z",
     "salt": "a1b3ed7a6bc538b5add708cff9db4265",
-    "passwordHash": "ed5f4b8dc639be4626a83cd8e5d183c34ce709c5b17286bfd6e0700dad93377ef35a195c847fd95dc65863df5d6cb15a950f45d4d1c9e3b7c5b3b0d8d783dedb"
+    "passwordHash": "ed5f4b8dc639be4626a83cd8e5d183c34ce709c5b17286bfd6e0700dad93377ef35a195c847fd95dc65863df5d6cb15a950f45d4d1c9e3b7c5b3b0d8d783dedb",
+    "enabledEngines": [],
+    "hasConfiguredEngines": false,
+    "connectedExternalEngines": []
+  },
+  {
+    "id": "guest_mwmifypw_7834",
+    "email": "guest_mwmifypw_7834@pycode.guest",
+    "name": "BYOM Verify Guest",
+    "avatar": "⚡",
+    "role": "viewer",
+    "skillLevel": "Beginner",
+    "twoFactorEnabled": false,
+    "enabledEngines": [],
+    "connectedExternalEngines": [],
+    "preferredExternalEngines": [],
+    "externalCredentials": {},
+    "hasConfiguredEngines": true,
+    "createdAt": "2026-11-18T19:24:38.660Z",
+    "lastLoginAt": "2026-11-18T19:24:38.660Z",
+    "salt": "guest_salt",
+    "passwordHash": "guest_hash"
   }
 ]

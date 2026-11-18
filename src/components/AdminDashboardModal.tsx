@@ -29,10 +29,18 @@ import {
   XCircle,
   Calendar,
   LogIn,
-  Filter
+  Filter,
+  Cpu
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../context/WebSocketContext';
+import { UserAvatar } from './UserAvatar';
+import {
+  BUILTIN_DEFAULT_ENGINE,
+  EXTERNAL_ENGINES,
+  normalizeExternalEngines
+} from '../constants/aiEngines';
+import { renderEngineIcon } from './AIEngineIcons';
 import { 
   UniqueDeviceRecord, 
   DeviceSessionDetail,
@@ -101,6 +109,9 @@ export interface UserItem {
   role: 'owner' | 'admin' | 'member' | 'viewer';
   skillLevel: string;
   twoFactorEnabled?: boolean;
+  connectedExternalEngines?: string[];
+  enabledEngines?: string[];
+  hasConfiguredEngines?: boolean;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -497,6 +508,23 @@ export const AdminDashboardModal: React.FC = () => {
     );
   }, [userGroupedDevices, search]);
 
+  // External BYOM engine adoption count across registered users
+  const engineAdoptionStats = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const eng of EXTERNAL_ENGINES) {
+      counts[eng.id] = 0;
+    }
+    for (const u of usersList) {
+      const connected = normalizeExternalEngines(u.connectedExternalEngines || u.enabledEngines);
+      for (const engId of connected) {
+        if (counts[engId] !== undefined) {
+          counts[engId]++;
+        }
+      }
+    }
+    return counts;
+  }, [usersList]);
+
   // Filtered History for User Detail View
   const filteredUserHistoryLogs = useMemo(() => {
     if (!selectedUserHistory?.loginHistory) return [];
@@ -525,19 +553,19 @@ export const AdminDashboardModal: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Bar */}
-        <div className="px-6 py-4 border-b border-[#2d3131] bg-[#131414] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+        <div className="px-6 py-4 border-b border-[#2d3131] bg-[#131414] flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
               <Crown className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-semibold text-white tracking-tight">Owner Control Center</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-700/50 font-semibold">
+                <h2 className="text-sm font-semibold text-white tracking-tight truncate">Owner Control Center</h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-700/50 font-semibold shrink-0">
                   {isOwner ? 'PREDEFINED OWNER' : 'ADMINISTRATOR'}
                 </span>
               </div>
-              <p className="text-[11px] text-[#858585]">
+              <p className="text-xs text-[#858585] truncate">
                 Real-time user device grouping, complete login history audit, and RBAC security
               </p>
             </div>
@@ -748,47 +776,49 @@ export const AdminDashboardModal: React.FC = () => {
                 <div className="space-y-5">
                   {/* User Profile Hero Card */}
                   <div className="p-5 rounded-2xl bg-[#131414] border border-[#2d3131] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="relative">
-                        <div className="w-14 h-14 rounded-2xl bg-[#202222] border border-[#2d3131] flex items-center justify-center text-3xl shadow-inner">
-                          {selectedUserHistory.user.avatar || '👤'}
-                        </div>
-                        <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-[#131414] flex items-center justify-center ${
+                    <div className="flex items-center gap-4 min-w-0 flex-1 w-full">
+                      <div className="relative shrink-0">
+                        <UserAvatar
+                          avatar={selectedUserHistory.user.avatar}
+                          name={selectedUserHistory.user.name}
+                          email={selectedUserHistory.user.email}
+                          sizeClass="w-12 h-12"
+                          roundedClass="rounded-full"
+                          textClass="text-sm"
+                          className="border border-[#2d3131] shadow-inner"
+                        />
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#131414] flex items-center justify-center ${
                           selectedUserHistory.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
-                        }`}>
-                          {selectedUserHistory.status === 'online' && (
-                            <span className="w-2 h-2 rounded-full bg-white animate-ping opacity-75" />
-                          )}
-                        </span>
+                        }`} />
                       </div>
 
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-bold text-white tracking-tight">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <h3 className="text-sm font-semibold text-white tracking-tight truncate max-w-full">
                             {selectedUserHistory.user.name || 'User'}
                           </h3>
 
                           {selectedUserHistory.user.role === 'owner' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold">
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold shrink-0">
                               <Crown className="w-3 h-3 text-amber-400" />
                               <span>ROOT OWNER</span>
                             </span>
                           )}
 
                           {selectedUserHistory.user.role === 'admin' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold">
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold shrink-0">
                               <Shield className="w-3 h-3 text-indigo-400" />
                               <span>ADMINISTRATOR</span>
                             </span>
                           )}
 
                           {selectedUserHistory.user.role !== 'owner' && selectedUserHistory.user.role !== 'admin' && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md font-mono bg-[#202222] text-[#9e9e9e] uppercase">
+                            <span className="text-[10px] px-2 py-0.5 rounded-md font-mono bg-[#202222] text-[#9e9e9e] uppercase shrink-0">
                               {selectedUserHistory.user.role}
                             </span>
                           )}
 
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
                             selectedUserHistory.status === 'online'
                               ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60'
                               : 'bg-zinc-800 text-zinc-400'
@@ -798,8 +828,8 @@ export const AdminDashboardModal: React.FC = () => {
                           </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#858585] mt-1 font-mono">
-                          <span>{selectedUserHistory.user.email}</span>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#858585] mt-1 font-mono min-w-0">
+                          <span className="truncate max-w-full">{selectedUserHistory.user.email}</span>
                           <span>•</span>
                           <span className="text-zinc-400 font-sans">
                             Account: <strong className="text-white capitalize">{selectedUserHistory.user.accountType || 'Registered'}</strong>
@@ -819,9 +849,31 @@ export const AdminDashboardModal: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="text-right text-[11px] text-[#858585] font-mono shrink-0">
+                    <div className="text-right text-[11px] text-[#858585] font-mono shrink-0 space-y-1">
                       <div>Created: {formatExactTimestamp(selectedUserHistory.user.createdAt)}</div>
                       <div className="text-zinc-400">Last Login: {formatExactTimestamp(selectedUserHistory.user.lastLoginAt)}</div>
+                      <div className="flex flex-wrap justify-end gap-1 pt-1">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#191a1a] border border-emerald-700/40 text-[10px] text-emerald-300 font-sans">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span>{BUILTIN_DEFAULT_ENGINE.shortName} (Built-In)</span>
+                        </span>
+                        {normalizeExternalEngines(
+                          (selectedUserHistory.user as any).connectedExternalEngines ||
+                          selectedUserHistory.user.enabledEngines
+                        ).map((engId) => {
+                          const engInfo = EXTERNAL_ENGINES.find((e) => e.id === engId);
+                          if (!engInfo) return null;
+                          return (
+                            <span
+                              key={`detail-eng-${engId}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#191a1a] border border-sky-700/40 text-[10px] text-sky-300 font-sans"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                              <span>{engInfo.shortName || engInfo.name} (External)</span>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -1141,19 +1193,25 @@ export const AdminDashboardModal: React.FC = () => {
                           >
                             {/* User Header */}
                             <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-center gap-3 min-w-0">
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
                                 <div className="relative shrink-0">
-                                  <div className="w-10 h-10 rounded-xl bg-[#202222] border border-[#2d3131] flex items-center justify-center text-xl">
-                                    {u.avatar || '👤'}
-                                  </div>
-                                  <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-[#131414] ${
+                                  <UserAvatar
+                                    avatar={u.avatar}
+                                    name={u.userName}
+                                    email={u.userEmail}
+                                    sizeClass="w-9 h-9"
+                                    roundedClass="rounded-full"
+                                    textClass="text-xs"
+                                    className="border border-[#2d3131]"
+                                  />
+                                  <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#131414] ${
                                     isUserOnline ? 'bg-emerald-500' : 'bg-zinc-600'
                                   }`} />
                                 </div>
 
-                                <div className="truncate">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-sm font-bold text-white group-hover:text-[#20b8cd] transition-colors truncate">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-sm font-semibold text-white group-hover:text-[#20b8cd] transition-colors truncate">
                                       {u.userName}
                                     </span>
 
@@ -1178,7 +1236,7 @@ export const AdminDashboardModal: React.FC = () => {
                                     )}
                                   </div>
 
-                                  <div className="text-[11px] text-[#858585] font-mono truncate mt-0.5">
+                                  <div className="text-xs text-[#858585] font-mono truncate mt-0.5">
                                     {u.userEmail}
                                   </div>
                                 </div>
@@ -1210,6 +1268,30 @@ export const AdminDashboardModal: React.FC = () => {
                                   {u.activeSessionsCount} Active Session{u.activeSessionsCount === 1 ? '' : 's'}
                                 </span>
                               )}
+                            </div>
+
+                            {/* Connected AI Engines for this user */}
+                            <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                              <span className="text-[#858585] font-mono mr-0.5">Engines:</span>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#191a1a] border border-emerald-800/40 text-emerald-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                {renderEngineIcon(BUILTIN_DEFAULT_ENGINE.iconType, 'w-3 h-3')}
+                                <span>{BUILTIN_DEFAULT_ENGINE.shortName}</span>
+                              </span>
+                              {normalizeExternalEngines((u as any).connectedExternalEngines || u.enabledEngines).map((engId) => {
+                                const engInfo = EXTERNAL_ENGINES.find((e) => e.id === engId);
+                                if (!engInfo) return null;
+                                return (
+                                  <span
+                                    key={`card-eng-${u.userId}-${engId}`}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#191a1a] border border-sky-800/40 text-sky-200"
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+                                    {renderEngineIcon(engInfo.iconType, 'w-3 h-3')}
+                                    <span className="truncate max-w-[110px]">{engInfo.shortName || engInfo.name}</span>
+                                  </span>
+                                );
+                              })}
                             </div>
 
                             {/* Deduplicated Devices List under this User */}
@@ -1330,23 +1412,23 @@ export const AdminDashboardModal: React.FC = () => {
                           key={`raw-session-${s.id || s.deviceId || 'sess'}-${idx}`}
                           className="p-3.5 rounded-2xl bg-[#131414] border border-[#2d3131] flex items-center justify-between gap-3 text-xs"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-[#202222] flex items-center justify-center text-[#858585]">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-8 h-8 rounded-xl bg-[#202222] flex items-center justify-center text-[#858585] shrink-0">
                               {renderDeviceIcon(s.deviceType)}
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-white">{s.userName || 'Anonymous'}</span>
-                                <span className="text-[10px] text-[#858585] font-mono">{s.userEmail}</span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-[#202222] text-[#9e9e9e] capitalize">{s.role}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-sm font-semibold text-white truncate">{s.userName || 'Anonymous'}</span>
+                                <span className="text-xs text-[#858585] font-mono truncate">{s.userEmail}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-[#202222] text-[#9e9e9e] capitalize shrink-0">{s.role}</span>
                               </div>
-                              <span className="text-[11px] text-[#858585] font-mono">
+                              <span className="text-xs text-[#858585] font-mono block truncate">
                                 {s.os} • {s.browser} • Last active {new Date(s.lastActivityAt).toLocaleTimeString()}
                               </span>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono capitalize ${
                               s.status === 'online' ? 'bg-emerald-950/60 text-emerald-400' : 'bg-zinc-800 text-zinc-400'
                             }`}>
@@ -1371,16 +1453,16 @@ export const AdminDashboardModal: React.FC = () => {
               {activeTab === 'events' && (
                 <div className="space-y-2">
                   {events.map((evt, idx) => (
-                    <div key={`event-${evt.id || evt.timestamp || 'evt'}-${idx}`} className="p-3 rounded-xl bg-[#131414] border border-[#2d3131] flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-2 h-2 rounded-full ${evt.status === 'success' ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                        <div>
-                          <span className="font-medium text-white">{evt.name}</span>
-                          <span className="text-[11px] text-[#858585] ml-2 font-mono">{evt.email}</span>
-                          <span className="text-[11px] text-[#858585] ml-2">via {evt.authMethod}</span>
+                    <div key={`event-${evt.id || evt.timestamp || 'evt'}-${idx}`} className="p-3 rounded-xl bg-[#131414] border border-[#2d3131] flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${evt.status === 'success' ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                        <div className="flex items-center gap-2 min-w-0 truncate">
+                          <span className="text-sm font-medium text-white truncate">{evt.name}</span>
+                          <span className="text-xs text-[#858585] font-mono truncate">{evt.email}</span>
+                          <span className="text-xs text-[#858585] shrink-0">via {evt.authMethod}</span>
                         </div>
                       </div>
-                      <span className="text-[10px] font-mono text-[#858585]">{formatExactTimestamp(evt.timestamp)}</span>
+                      <span className="text-xs font-mono text-[#858585] shrink-0">{formatExactTimestamp(evt.timestamp)}</span>
                     </div>
                   ))}
                 </div>
@@ -1417,7 +1499,57 @@ export const AdminDashboardModal: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Users list with deduplicated device counts, total logins, and history view action */}
+                  {/* AI Engine Adoption & BYOM Token Routing Summary */}
+                  <div className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-white font-semibold">
+                        <Cpu className="w-4 h-4 text-[#20b8cd]" />
+                        <span>Turbo AI Default &amp; External BYOM Adoption</span>
+                      </div>
+                      <span className="text-[11px] text-[#858585] font-mono">
+                        {usersList.length} Users Monitored
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                      <div className="p-2.5 rounded-xl bg-[#191a1a] border border-emerald-800/40 flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-6 h-6 rounded-lg bg-[#131414] border border-[#2d3131] flex items-center justify-center shrink-0">
+                            {renderEngineIcon(BUILTIN_DEFAULT_ENGINE.iconType, 'w-3.5 h-3.5')}
+                          </div>
+                          <span className="text-[11px] font-medium text-white truncate">
+                            {BUILTIN_DEFAULT_ENGINE.shortName} (Default)
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-emerald-400 shrink-0">
+                          {usersList.length}
+                        </span>
+                      </div>
+
+                      {EXTERNAL_ENGINES.map((eng) => {
+                        const count = engineAdoptionStats[eng.id] || 0;
+                        return (
+                          <div
+                            key={`adopt-${eng.id}`}
+                            className="p-2.5 rounded-xl bg-[#191a1a] border border-[#282a2c] flex items-center justify-between gap-2 min-w-0"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-6 h-6 rounded-lg bg-[#131414] border border-[#2d3131] flex items-center justify-center shrink-0">
+                                {renderEngineIcon(eng.iconType, 'w-3.5 h-3.5')}
+                              </div>
+                              <span className="text-[11px] font-medium text-white truncate">
+                                {eng.shortName || eng.name}
+                              </span>
+                            </div>
+                            <span className={`text-xs font-mono font-bold shrink-0 ${count > 0 ? 'text-sky-400' : 'text-zinc-500'}`}>
+                              {count}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Users list with deduplicated device counts, connected BYOM engines, total logins, and history view action */}
                   <div className="space-y-2">
                     {usersList
                       .filter(u => 
@@ -1431,62 +1563,100 @@ export const AdminDashboardModal: React.FC = () => {
                         const deviceCount = grouped?.devices?.length || 1;
                         const totalLogins = grouped?.totalLoginsCount || 1;
                         const isOnline = grouped?.status === 'online';
+                        const userExternalEngines = normalizeExternalEngines(u.connectedExternalEngines || u.enabledEngines);
 
                         return (
                           <div 
                             key={`user-item-${u.id || idx}`}
                             className="p-3.5 rounded-2xl bg-[#131414] border border-[#2d3131] hover:border-[#383c3c] transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
                           >
-                            <div className="flex items-center gap-3 min-w-0">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
                               <div className="relative shrink-0">
-                                <div className="w-10 h-10 rounded-full bg-[#202222] border border-[#2d3131] flex items-center justify-center text-lg">
-                                  {u.avatar || '👤'}
-                                </div>
+                                <UserAvatar
+                                  avatar={u.avatar}
+                                  name={u.name}
+                                  email={u.email}
+                                  sizeClass="w-9 h-9"
+                                  roundedClass="rounded-full"
+                                  textClass="text-xs"
+                                  className="border border-[#2d3131]"
+                                />
                                 <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#131414] ${
                                   isOnline ? 'bg-emerald-500' : 'bg-zinc-600'
                                 }`} />
                               </div>
 
-                              <div className="truncate">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-semibold text-white truncate">{u.name || 'User'}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                  <span className="text-sm font-semibold text-white truncate max-w-full">{u.name || 'User'}</span>
                                   
                                   {isOwnerAccount && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold">
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold shrink-0">
                                       <Crown className="w-3 h-3 text-amber-400" />
                                       <span>ROOT OWNER</span>
                                     </span>
                                   )}
 
                                   {isAdminAccount && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold">
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold shrink-0">
                                       <Shield className="w-3 h-3 text-indigo-400" />
                                       <span>ADMINISTRATOR (APP EDITOR)</span>
                                     </span>
                                   )}
 
                                   {!isOwnerAccount && !isAdminAccount && (
-                                    <span className="text-[10px] px-1.5 py-0.2 rounded-md font-mono bg-[#202222] text-[#9e9e9e] capitalize">
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded-md font-mono bg-[#202222] text-[#9e9e9e] capitalize shrink-0">
                                       {u.role}
                                     </span>
                                   )}
 
                                   {u.twoFactorEnabled && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded-md font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-700/50">
+                                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded-md font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-700/50 shrink-0">
                                       <ShieldCheck className="w-3 h-3 text-emerald-400" />
                                       <span>2FA ON</span>
                                     </span>
                                   )}
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[#858585] mt-1 font-mono">
-                                  <span>{u.email}</span>
-                                  <span>•</span>
-                                  <span className="text-[#20b8cd] font-semibold">{totalLogins} Total Logins</span>
-                                  <span>•</span>
-                                  <span>{deviceCount} Device{deviceCount === 1 ? '' : 's'}</span>
-                                  <span>•</span>
-                                  <span>Since {new Date(u.createdAt).toLocaleDateString()}</span>
+                                <div className="flex items-center gap-x-2 text-xs text-[#858585] mt-1 font-mono min-w-0">
+                                  <span className="truncate">{u.email}</span>
+                                  <span className="shrink-0">•</span>
+                                  <span className="text-[#20b8cd] font-semibold shrink-0">{totalLogins} Total Logins</span>
+                                  <span className="shrink-0">•</span>
+                                  <span className="shrink-0">{deviceCount} Device{deviceCount === 1 ? '' : 's'}</span>
+                                  <span className="hidden sm:inline shrink-0">•</span>
+                                  <span className="hidden sm:inline shrink-0">Since {new Date(u.createdAt).toLocaleDateString()}</span>
+                                </div>
+
+                                {/* Per-user Built-In & Connected External BYOM Engines */}
+                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                  <span className="text-[10px] font-mono text-[#858585]">
+                                    BYOM ({userExternalEngines.length}/{EXTERNAL_ENGINES.length}):
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#191a1a] border border-emerald-800/40 text-[10px] text-emerald-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                    {renderEngineIcon(BUILTIN_DEFAULT_ENGINE.iconType, 'w-3 h-3')}
+                                    <span>{BUILTIN_DEFAULT_ENGINE.shortName}</span>
+                                  </span>
+                                  {userExternalEngines.map((engId) => {
+                                    const engInfo = EXTERNAL_ENGINES.find((e) => e.id === engId);
+                                    if (!engInfo) return null;
+                                    return (
+                                      <span
+                                        key={`usr-eng-${u.id}-${engId}`}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#191a1a] border border-sky-800/40 text-[10px] text-sky-200"
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+                                        {renderEngineIcon(engInfo.iconType, 'w-3 h-3')}
+                                        <span className="truncate max-w-[110px]">{engInfo.shortName || engInfo.name}</span>
+                                      </span>
+                                    );
+                                  })}
+                                  {userExternalEngines.length === 0 && (
+                                    <span className="text-[10px] text-[#5c6166] font-mono">
+                                      0 External
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>

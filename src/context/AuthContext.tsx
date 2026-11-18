@@ -2,6 +2,14 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { signInWithGooglePopup, signOutFirebase } from '../firebase';
 import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
 
+import type {
+  ConnectorEngineId,
+  ExternalEngineId,
+  ExternalEngineCredentialMeta,
+  SyncedEngineSession
+} from '../types';
+import { normalizeExternalEngines } from '../constants/aiEngines';
+
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface UserProfile {
@@ -12,6 +20,12 @@ export interface UserProfile {
   role: UserRole;
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
   twoFactorEnabled?: boolean;
+  connectedExternalEngines?: ExternalEngineId[];
+  externalConnections?: Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>>;
+  preferredExternalEngines?: ExternalEngineId[];
+  enabledEngines?: ConnectorEngineId[];
+  hasConfiguredEngines?: boolean;
+  syncedEngineSessions?: Record<string, SyncedEngineSession>;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -67,6 +81,27 @@ interface AuthContextType {
   isFeedbackModalOpen: boolean;
   openFeedbackModal: () => void;
   closeFeedbackModal: () => void;
+  // External BYOM AI Connectivity & Onboarding State & Actions
+  isEngineConnectorOpen: boolean;
+  openEngineConnector: () => void;
+  closeEngineConnector: () => void;
+  connectedExternalEngines: ExternalEngineId[];
+  enabledEngines: ConnectorEngineId[];
+  externalConnections: Partial<Record<ExternalEngineId, ExternalEngineCredentialMeta>>;
+  preferredExternalEngines: ExternalEngineId[];
+  completeEngineOnboarding: (params: {
+    preferredExternalEngines?: ExternalEngineId[];
+    skipped?: boolean;
+  }) => Promise<{ success: boolean; error?: string; user?: UserProfile }>;
+  testAndConnectExternalEngine: (params: {
+    engineId: ExternalEngineId;
+    apiKey: string;
+    endpointUrl?: string;
+    modelName?: string;
+  }) => Promise<{ success: boolean; error?: string; user?: UserProfile; latencyMs?: number }>;
+  disconnectExternalEngine: (
+    engineId: ExternalEngineId
+  ) => Promise<{ success: boolean; error?: string; user?: UserProfile }>;
   // 2FA Challenge State & Actions
   is2FAModalOpen: boolean;
   twoFactorChallenge: TwoFactorChallengeState | null;
@@ -158,6 +193,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string>('general');
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState<boolean>(false);
+  const [isEngineConnectorOpen, setIsEngineConnectorOpen] = useState<boolean>(false);
 
   // 2FA Challenge state
   const [is2FAModalOpen, setIs2FAModalOpen] = useState<boolean>(false);
@@ -234,6 +270,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               setUser(result.data.user);
               setToken(currentToken);
               localStorage.setItem(USER_KEY, JSON.stringify(result.data.user));
+              if (result.data.user.hasConfiguredEngines === false) {
+                setIsEngineConnectorOpen(true);
+              }
               setIsLoading(false);
               return;
             } else {
@@ -257,7 +296,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             })
           });
           if (isMounted && res.ok && res.data) {
-            handleSetAuth(res.data.token, res.data.user);
+            handleSetAuth(res.data.token, res.data.user, true);
             setIsLoading(false);
             return;
           }
@@ -309,15 +348,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const handleClearAuth = () => {
     setToken(null);
     setUser(null);
+    setIsEngineConnectorOpen(false);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
   };
 
-  const handleSetAuth = (newToken: string, newUser: UserProfile) => {
+  const handleSetAuth = (newToken: string, newUser: UserProfile, triggerOnboardingIfNeeded: boolean = true) => {
     setToken(newToken);
     setUser(newUser);
     localStorage.setItem(TOKEN_KEY, newToken);
     localStorage.setItem(USER_KEY, JSON.stringify(newUser));
+    if (triggerOnboardingIfNeeded && newUser.hasConfiguredEngines === false) {
+      setIsEngineConnectorOpen(true);
+    }
   };
 
   const openAuthModal = (tab?: 'signin' | 'signup' | 'guest') => {
@@ -345,6 +388,95 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const openFeedbackModal = () => setIsFeedbackModalOpen(true);
   const closeFeedbackModal = () => setIsFeedbackModalOpen(false);
+
+  const openEngineConnector = () => setIsEngineConnectorOpen(true);
+  const closeEngineConnector = () => setIsEngineConnectorOpen(false);
+
+  const completeEngineOnboarding = async (params: {
+    preferredExternalEngines?: ExternalEngineId[];
+    skipped?: boolean;
+  }) => {
+    if (!token) return { success: false, error: 'Not authenticated' };
+
+    const res = await safeFetchJson<{
+      success: boolean;
+      user: UserProfile;
+    }>('/api/auth/engines/onboarding', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        preferredExternalEngines: params.preferredExternalEngines || [],
+        skipped: Boolean(params.skipped)
+      })
+    });
+
+    if (!res.ok || !res.data?.user) {
+      return { success: false, error: res.error || 'Failed to save onboarding preference' };
+    }
+
+    setUser(res.data.user);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
+    return { success: true, user: res.data.user };
+  };
+
+  const testAndConnectExternalEngine = async (params: {
+    engineId: ExternalEngineId;
+    apiKey: string;
+    endpointUrl?: string;
+    modelName?: string;
+  }) => {
+    if (!token) return { success: false, error: 'Please sign in first to connect external AI engines.' };
+
+    const res = await safeFetchJson<{
+      success: boolean;
+      user: UserProfile;
+      verification?: { latencyMs?: number };
+    }>('/api/auth/engines/connect', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(params)
+    });
+
+    if (!res.ok || !res.data?.user) {
+      return { success: false, error: res.error || 'Credential verification failed' };
+    }
+
+    setUser(res.data.user);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
+    return {
+      success: true,
+      user: res.data.user,
+      latencyMs: res.data.verification?.latencyMs
+    };
+  };
+
+  const disconnectExternalEngine = async (engineId: ExternalEngineId) => {
+    if (!token) return { success: false, error: 'Not authenticated' };
+
+    const res = await safeFetchJson<{
+      success: boolean;
+      user: UserProfile;
+    }>(`/api/auth/engines/disconnect/${encodeURIComponent(engineId)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok || !res.data?.user) {
+      return { success: false, error: res.error || 'Failed to disconnect external engine' };
+    }
+
+    setUser(res.data.user);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
+    return { success: true, user: res.data.user };
+  };
 
   const cancel2FA = () => {
     setIs2FAModalOpen(false);
@@ -787,6 +919,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true };
   };
 
+  const connectedExternalEngines = normalizeExternalEngines(
+    user?.connectedExternalEngines || user?.enabledEngines
+  );
+  const externalConnections = user?.externalConnections || {};
+  const preferredExternalEngines = normalizeExternalEngines(user?.preferredExternalEngines);
+
   return (
     <AuthContext.Provider
       value={{
@@ -815,6 +953,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isFeedbackModalOpen,
         openFeedbackModal,
         closeFeedbackModal,
+        // External BYOM AI Connectivity
+        isEngineConnectorOpen,
+        openEngineConnector,
+        closeEngineConnector,
+        connectedExternalEngines,
+        enabledEngines: connectedExternalEngines,
+        externalConnections,
+        preferredExternalEngines,
+        completeEngineOnboarding,
+        testAndConnectExternalEngine,
+        disconnectExternalEngine,
         // 2FA
         is2FAModalOpen,
         twoFactorChallenge,

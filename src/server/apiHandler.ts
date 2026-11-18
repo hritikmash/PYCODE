@@ -1,6 +1,8 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { analyzePythonSubmission } from './geminiService.ts';
+import { analyzePythonSubmission, verifyExternalEngineCredential } from './geminiService.ts';
+import { analyzePyFixSubmission } from './pyfixAnalyzer.ts';
 import { executePythonCode } from './pythonRunner.ts';
+import type { AIEngineId, ExternalEngineId } from '../types/index.ts';
 import {
   registerUser,
   loginUser,
@@ -14,6 +16,12 @@ import {
   recordHeartbeat,
   disconnectSession,
   updateUserProfile,
+  completeExternalEngineOnboarding,
+  saveVerifiedExternalEngineCredential,
+  disconnectExternalEngineCredential,
+  getUserDecryptedExternalCredential,
+  getUserEngineStatus,
+  SUPPORTED_EXTERNAL_ENGINES,
   updateUserRole,
   appointAdministrator,
   revokeAdministrator,
@@ -307,6 +315,115 @@ apiRouter.patch('/auth/profile', requireAuth, (req: Request, res: Response) => {
     return res.json({ user: updated });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Update failed' });
+  }
+});
+
+// External BYOM AI Connectivity: Complete/Skip First-Login Onboarding
+apiRouter.post('/auth/engines/onboarding', requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  try {
+    const { preferredExternalEngines, skipped } = req.body || {};
+    const updatedUser = completeExternalEngineOnboarding(
+      user.id,
+      { preferredExternalEngines, skipped: Boolean(skipped) },
+      user
+    );
+    broadcastAdminUpdate('user:engines_updated', {
+      userId: user.id,
+      connectedExternalEngines: updatedUser.connectedExternalEngines || []
+    });
+    return res.json({
+      success: true,
+      user: updatedUser
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to save onboarding selection' });
+  }
+});
+
+// External BYOM AI Connectivity: Test & Connect User API Key / Endpoint
+apiRouter.post('/auth/engines/connect', requireAuth, async (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  try {
+    const { engineId, apiKey, endpointUrl, modelName } = req.body || {};
+    if (!engineId || !SUPPORTED_EXTERNAL_ENGINES.includes(engineId)) {
+      return res.status(400).json({ error: 'Unsupported external AI engine.' });
+    }
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+      return res.status(400).json({ error: 'Personal API key is required.' });
+    }
+
+    const verification = await verifyExternalEngineCredential({
+      engineId: engineId as ExternalEngineId,
+      apiKey: apiKey.trim(),
+      endpointUrl: typeof endpointUrl === 'string' ? endpointUrl.trim() : undefined,
+      modelName: typeof modelName === 'string' ? modelName.trim() : undefined
+    });
+
+    if (!verification.valid) {
+      return res.status(400).json({
+        success: false,
+        error: verification.error || 'API credential verification failed.',
+        verification
+      });
+    }
+
+    const updatedUser = saveVerifiedExternalEngineCredential(
+      user.id,
+      {
+        engineId: engineId as ExternalEngineId,
+        apiKey: apiKey.trim(),
+        endpointUrl: verification.endpointUsed || endpointUrl,
+        modelName: verification.modelUsed || modelName
+      },
+      user
+    );
+
+    broadcastAdminUpdate('user:engines_updated', {
+      userId: user.id,
+      connectedExternalEngines: updatedUser.connectedExternalEngines || []
+    });
+
+    return res.json({
+      success: true,
+      user: updatedUser,
+      verification
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to verify & connect external AI engine' });
+  }
+});
+
+// External BYOM AI Connectivity: Disconnect & Purge Credentials
+apiRouter.delete('/auth/engines/disconnect/:engineId', requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const { engineId } = req.params;
+  try {
+    if (!SUPPORTED_EXTERNAL_ENGINES.includes(engineId as ExternalEngineId)) {
+      return res.status(400).json({ error: 'Unsupported external AI engine.' });
+    }
+    const updatedUser = disconnectExternalEngineCredential(user.id, engineId as ExternalEngineId, user);
+    broadcastAdminUpdate('user:engines_updated', {
+      userId: user.id,
+      connectedExternalEngines: updatedUser.connectedExternalEngines || []
+    });
+    return res.json({
+      success: true,
+      user: updatedUser
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to disconnect external AI engine' });
+  }
+});
+
+// Get Current User External BYOM Connectivity Status
+apiRouter.get('/auth/engines/status', requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  try {
+    const status = getUserEngineStatus(user.id);
+    return res.json(status);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to retrieve engine status' });
   }
 });
 
@@ -651,15 +768,52 @@ apiRouter.post('/run-python', async (req: Request, res: Response) => {
 // Analyze code submission
 apiRouter.post('/analyze', async (req: Request, res: Response) => {
   try {
-    const { code, question, mode, engine, attachedDocs, chatHistory } = req.body;
-    if (!code && !question) {
-      return res.status(400).json({ error: 'Code or question is required' });
+    const { code, query, question, mode, engine, attachedDocs, chatHistory } = req.body;
+    const effectiveQuery = typeof query === 'string' ? query : (typeof question === 'string' ? question : '');
+
+    if (!code && !effectiveQuery) {
+      return res.status(400).json({ error: 'Code or query is required' });
     }
+
+    const requestedEngine: AIEngineId = (engine || 'turbo_race') as AIEngineId;
+    const isExternalEngine = SUPPORTED_EXTERNAL_ENGINES.includes(requestedEngine as ExternalEngineId);
+
+    let userExternalCredential = null;
+    if (isExternalEngine) {
+      const token = getBearerToken(req);
+      const authedUser = token ? verifySession(token) : null;
+      if (!authedUser) {
+        return res.status(401).json({
+          error: 'Authentication required to execute external BYOM AI engines. Use Turbo AI or sign in.'
+        });
+      }
+      userExternalCredential = getUserDecryptedExternalCredential(
+        authedUser.id,
+        requestedEngine as ExternalEngineId
+      );
+      if (!userExternalCredential) {
+        return res.status(403).json({
+          error: `External engine "${requestedEngine}" is not connected. Connect your personal API key in Settings > AI Connectivity.`
+        });
+      }
+    }
+
+    // PyFix AI v2 contract: { query, code, mode: "beginner" | "interview" }
+    if (!isExternalEngine && (typeof query === 'string' || mode === 'beginner' || mode === 'interview')) {
+      const result = await analyzePyFixSubmission({
+        query: effectiveQuery,
+        code: typeof code === 'string' ? code : '',
+        mode: mode === 'interview' ? 'interview' : 'beginner'
+      });
+      return res.json(result);
+    }
+
     const result = await analyzePythonSubmission({
       code: code || '',
-      question: question || '',
+      question: effectiveQuery,
       preferredMode: mode || 'both',
-      engine: engine || 'gemini',
+      engine: requestedEngine,
+      userExternalCredential,
       attachedDocs,
       chatHistory
     } as any);

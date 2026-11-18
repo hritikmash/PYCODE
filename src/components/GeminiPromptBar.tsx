@@ -14,10 +14,18 @@ import {
   ArrowUp,
   FileCode,
   Sparkles,
-  Sliders
+  Sliders,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { AIEngineId, AttachedDocument, DocumentType, SearchEngineType } from '../types';
-import { AI_ENGINES } from '../constants/aiEngines';
+import {
+  BUILTIN_DEFAULT_ENGINE,
+  DEFAULT_BUILTIN_ENGINE_ID,
+  getAvailableWorkspaceEngines
+} from '../constants/aiEngines';
+import { useAuth } from '../context/AuthContext';
+import { renderEngineIcon } from './AIEngineIcons';
 
 interface GeminiPromptBarProps {
   onSend: (text: string, attachments: AttachedDocument[]) => void;
@@ -61,10 +69,12 @@ export const GeminiPromptBar: React.FC<GeminiPromptBarProps> = ({
   onOpenEngineSettings,
   preferredSearchEngine = 'google'
 }) => {
+  const { connectedExternalEngines, openSettingsModal } = useAuth();
   const [inputText, setInputText] = useState<string>('');
   const [attachments, setAttachments] = useState<AttachedDocument[]>([]);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState<boolean>(false);
+  const [isEngineDropdownOpen, setIsEngineDropdownOpen] = useState<boolean>(false);
   const [searchGroundingActive, setSearchGroundingActive] = useState<boolean>(true);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [speechSupported, setSpeechSupported] = useState<boolean>(true);
@@ -72,9 +82,24 @@ export const GeminiPromptBar: React.FC<GeminiPromptBarProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const codeFileInputRef = useRef<HTMLInputElement>(null);
+  const engineDropdownRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  const currentEngine = AI_ENGINES.find(e => e.id === selectedEngine) || AI_ENGINES[0];
+  // Only show Turbo AI (Default) + user's connected external BYOM engines
+  const workspaceEngines = getAvailableWorkspaceEngines(connectedExternalEngines);
+  const currentEngine =
+    workspaceEngines.find((e) => e.id === selectedEngine) ||
+    BUILTIN_DEFAULT_ENGINE;
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (engineDropdownRef.current && !engineDropdownRef.current.contains(e.target as Node)) {
+        setIsEngineDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -252,16 +277,114 @@ export const GeminiPromptBar: React.FC<GeminiPromptBarProps> = ({
           <div className="flex items-center justify-between pt-1.5 mt-0.5 border-t border-[#282a2c]/50">
             {/* Left Controls */}
             <div className="flex items-center gap-1 sm:gap-1.5">
-              {/* Focus / Engine Pill */}
-              <button
-                type="button"
-                onClick={onOpenEngineSettings}
-                className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#282a2c] hover:bg-[#323437] text-xs text-white transition-colors cursor-pointer border border-[#37393b] shrink-0"
-                title="Change active AI model"
-              >
-                <span className="w-2 h-2 rounded-full bg-[#20b8cd] shrink-0" />
-                <span className="font-medium text-[11px] sm:text-xs text-white">{currentEngine.name}</span>
-              </button>
+              {/* Dynamic Workspace AI Engine Switcher Dropdown */}
+              <div className="relative" ref={engineDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsEngineDropdownOpen(!isEngineDropdownOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#282a2c] hover:bg-[#323437] text-xs text-white transition-colors cursor-pointer border border-[#37393b] shrink-0"
+                  title="Switch active AI engine"
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      currentEngine.id === DEFAULT_BUILTIN_ENGINE_ID ? 'bg-emerald-400' : 'bg-sky-400'
+                    }`}
+                    title={currentEngine.id === DEFAULT_BUILTIN_ENGINE_ID ? 'Built-In Default' : 'External • User Key'}
+                  />
+                  <span className="font-medium text-[11px] sm:text-xs text-white truncate max-w-[140px] sm:max-w-[200px]">
+                    {currentEngine.shortName || currentEngine.name}
+                  </span>
+                  {currentEngine.id !== DEFAULT_BUILTIN_ENGINE_ID && (
+                    <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[9px] font-medium bg-sky-950/80 text-sky-300 border border-sky-700/50 shrink-0">
+                      External
+                    </span>
+                  )}
+                  <ChevronDown className={`w-3 h-3 text-[#8e918f] transition-transform ${isEngineDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isEngineDropdownOpen && (
+                  <div className="absolute left-0 bottom-full mb-2 w-76 sm:w-84 rounded-2xl bg-[#1e1f20] border border-[#323638] shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 space-y-1">
+                    <div className="px-2.5 py-1.5 flex items-center justify-between border-b border-[#282a2c] mb-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8e918f]">
+                        Workspace Engines ({workspaceEngines.length})
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        <span>Turbo + BYOM</span>
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                      {workspaceEngines.map((engine) => {
+                        const isActive = engine.id === currentEngine.id;
+                        const isBuiltIn = engine.id === DEFAULT_BUILTIN_ENGINE_ID || Boolean(engine.isBuiltInDefault);
+                        return (
+                          <button
+                            key={engine.id}
+                            type="button"
+                            onClick={() => {
+                              onSelectEngine(engine.id);
+                              setIsEngineDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
+                              isActive
+                                ? 'bg-[#282a2c] border border-[#20b8cd]/50 text-white'
+                                : 'hover:bg-[#282a2c]/70 border border-transparent text-[#c4c7c5] hover:text-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="w-7 h-7 rounded-lg bg-[#131414] border border-[#2d3131] flex items-center justify-center shrink-0">
+                                {renderEngineIcon(engine.iconType, 'w-4 h-4')}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="font-semibold text-xs text-white truncate">
+                                    {engine.name}
+                                  </span>
+                                </div>
+                                {isBuiltIn ? (
+                                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-medium">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                    <span>Built-In Default</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 text-[10px] text-sky-400 font-medium">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+                                    <span>External • User Key</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {isActive && <Check className="w-3.5 h-3.5 text-[#20b8cd] shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-1.5 mt-1 border-t border-[#282a2c]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEngineDropdownOpen(false);
+                          if (onOpenEngineSettings) {
+                            onOpenEngineSettings();
+                          } else {
+                            openSettingsModal('connectivity');
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl bg-[#131414] hover:bg-[#282a2c] text-[#a8c7fa] hover:text-white transition-colors cursor-pointer text-[11px] font-medium"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5" />
+                          <span>AI Connectivity Hub</span>
+                        </span>
+                        <Sparkles className="w-3 h-3 text-[#20b8cd]" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Attach File Button */}
               <div className="relative">
