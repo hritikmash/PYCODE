@@ -1,0 +1,26 @@
+[
+  {
+    "id": "rem_1794425965016_tcm9p",
+    "userId": "usr_google_1793251226075_c9105760",
+    "deviceId": "dev_desktop_desktop_browser",
+    "deviceKey": "dev_desktop_desktop_browser",
+    "removedAt": "2026-11-11T19:39:25.016Z",
+    "removedBy": "hritikyadav1612@gmail.com"
+  },
+  {
+    "id": "rem_1794425980993_lzbee",
+    "userId": "usr_1794246822882_6eaec99a",
+    "deviceId": "dev_c46f38ab8dc0",
+    "deviceKey": "dev_c46f38ab8dc0",
+    "removedAt": "2026-11-11T19:39:40.993Z",
+    "removedBy": "hritikyadav1612@gmail.com"
+  },
+  {
+    "id": "rem_1794426189425_t9oz1",
+    "userId": "usr_1794246822882_6eaec99a",
+    "deviceId": "dev_desktop_desktop_chrome",
+    "deviceKey": "desktop_desktop_chrome",
+    "removedAt": "2026-11-11T19:43:09.425Z",
+    "removedBy": "hritikyadav1612@gmail.com"
+  }
+]

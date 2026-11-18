@@ -25,10 +25,15 @@ import {
   getAdminSessions,
   getAllUsers,
   getOwnerUniqueDevices,
+  getUserGroupedDevices,
+  getUserDetailHistory,
   revokeDeviceSessions,
+  removeDevice,
   enableTwoFactor,
   disableTwoFactor,
+  setupUserAuthenticator,
   verifyTwoFactorChallenge,
+  verifyAndCompleteAuthenticatorSignup,
   getSystemStats,
   clearSystemCache,
   submitFeedback,
@@ -120,16 +125,39 @@ apiRouter.get('/auth/me', (req: Request, res: Response) => {
   return res.json({ user });
 });
 
-// Register New Account
-apiRouter.post('/auth/register', (req: Request, res: Response) => {
+// Register New Account (Supports optional Google Authenticator TOTP setup)
+apiRouter.post('/auth/register', async (req: Request, res: Response) => {
   try {
-    const { email, password, name, avatar, skillLevel } = req.body;
+    const { email, password, name, avatar, skillLevel, setupGoogleAuthenticator } = req.body;
     const clientInfo = getClientInfo(req);
-    const result = registerUser({ email, password, name, avatar, skillLevel, clientInfo });
+    const result = await registerUser({
+      email,
+      password,
+      name,
+      avatar,
+      skillLevel,
+      clientInfo,
+      setupGoogleAuthenticator: Boolean(setupGoogleAuthenticator)
+    });
     return res.status(201).json(result);
   } catch (err: any) {
     const status = err.message === 'INVALID EMAIL!' ? 400 : 400;
     return res.status(status).json({ error: err.message || 'Registration failed' });
+  }
+});
+
+// Complete Sign Up with Google Authenticator verification
+apiRouter.post('/auth/signup/verify-authenticator', (req: Request, res: Response) => {
+  try {
+    const { tempSignupToken, code } = req.body;
+    if (!tempSignupToken || !code) {
+      return res.status(400).json({ error: 'Verification code is required' });
+    }
+    const clientInfo = getClientInfo(req);
+    const result = verifyAndCompleteAuthenticatorSignup({ tempSignupToken, code, clientInfo });
+    return res.status(201).json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Verification failed' });
   }
 });
 
@@ -191,6 +219,17 @@ apiRouter.post('/auth/2fa/toggle', requireAuth, (req: Request, res: Response) =>
     }
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Failed to update 2FA' });
+  }
+});
+
+// Two-Step Verification: Setup Google Authenticator for existing user
+apiRouter.post('/auth/2fa/setup-authenticator', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as UserProfile;
+    const setup = await setupUserAuthenticator(user.id);
+    return res.json({ success: true, twoFactorEnabled: true, ...setup });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to setup Google Authenticator' });
   }
 });
 
@@ -433,15 +472,67 @@ apiRouter.get('/owner/devices', requireAdmin, (req: Request, res: Response) => {
   }
 });
 
+// Grouped Connected Devices by User (Deduplicated, organized per user)
+apiRouter.get('/owner/user-devices', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const currentDeviceId = (req.headers['x-device-id'] as string) || (req.query.deviceId as string);
+  try {
+    const userDevices = getUserGroupedDevices(user, currentDeviceId);
+    return res.json({ userDevices, totalCount: userDevices.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch user devices' });
+  }
+});
+
+// Complete Login History and Device Details for specific User
+apiRouter.get('/owner/user-history/:targetId', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const { targetId } = req.params;
+  try {
+    const history = getUserDetailHistory(targetId, user);
+    return res.json(history);
+  } catch (err: any) {
+    return res.status(404).json({ error: err.message || 'Failed to fetch user login history' });
+  }
+});
+
 apiRouter.delete('/owner/devices/:deviceId', requireAdmin, (req: Request, res: Response) => {
   const user = (req as any).user as UserProfile;
   const { deviceId } = req.params;
+  const userId = (req.query.userId as string) || (req.body?.userId as string);
+  const deviceKey = (req.query.deviceKey as string) || (req.body?.deviceKey as string);
   try {
-    revokeDeviceSessions(deviceId, user);
-    broadcastAdminUpdate('device:revoked', { deviceId });
-    return res.json({ success: true });
+    removeDevice(deviceId, user, userId, deviceKey);
+    broadcastAdminUpdate('device:revoked', { deviceId, userId, deviceKey });
+    return res.json({ success: true, message: 'Device successfully removed' });
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'Failed to revoke device' });
+  }
+});
+
+apiRouter.delete('/owner/users/:userId/devices/:deviceId', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const { userId, deviceId } = req.params;
+  const deviceKey = (req.query.deviceKey as string) || (req.body?.deviceKey as string);
+  try {
+    removeDevice(deviceId, user, userId, deviceKey);
+    broadcastAdminUpdate('device:revoked', { deviceId, userId, deviceKey });
+    return res.json({ success: true, message: 'Device successfully removed' });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to revoke device' });
+  }
+});
+
+// Revoke all sessions for a specific user
+apiRouter.delete('/owner/users/:userId/sessions', requireAdmin, (req: Request, res: Response) => {
+  const user = (req as any).user as UserProfile;
+  const { userId } = req.params;
+  try {
+    revokeAllUserSessions(userId);
+    broadcastAdminUpdate('user:sessions_revoked', { userId });
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'Failed to revoke user sessions' });
   }
 });
 

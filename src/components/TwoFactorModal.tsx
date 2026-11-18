@@ -125,12 +125,12 @@ export const TwoFactorModal: React.FC = () => {
 
         {/* Icon & Title */}
         <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-[#20b8cd]/10 border border-[#20b8cd]/30 flex items-center justify-center mx-auto text-[#20b8cd] shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-400/30 flex items-center justify-center mx-auto text-sky-400 shadow-xs">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-semibold text-white tracking-tight">Two-Step Verification</h2>
+          <h2 className="text-xl font-semibold text-white tracking-tight">Google Authenticator Verification</h2>
           <p className="text-xs text-[#9e9e9e] leading-relaxed max-w-sm mx-auto">
-            Enhanced security is active. Enter the verification code sent to{' '}
+            Open the <strong className="text-white">Google Authenticator</strong> app on your device and enter the 6-digit security code for{' '}
             <span className="text-[#ececec] font-medium font-mono">{twoFactorChallenge.maskedEmail}</span>.
           </p>
         </div>

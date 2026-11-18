@@ -30,6 +30,17 @@ export interface TwoFactorChallengeState {
   codePreview?: string;
 }
 
+export interface GoogleAuthenticatorSetupData {
+  tempSignupToken: string;
+  email: string;
+  secret: string;
+  rawSecret: string;
+  otpauthUri: string;
+  qrCodeDataUrl: string;
+  backupCodes: string[];
+  codePreview?: string;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
@@ -69,8 +80,16 @@ interface AuthContextType {
     email: string,
     password: string,
     avatar?: string,
-    skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced'
-  ) => Promise<{ success: boolean; error?: string }>;
+    skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced',
+    setupGoogleAuthenticator?: boolean
+  ) => Promise<{
+    success: boolean;
+    requireAuthenticatorSetup?: boolean;
+    setupData?: GoogleAuthenticatorSetupData;
+    error?: string;
+  }>;
+  verifySignupAuthenticator: (tempSignupToken: string, code: string) => Promise<{ success: boolean; error?: string }>;
+  setupAuthenticator: () => Promise<{ success: boolean; setup?: GoogleAuthenticatorSetupData; error?: string }>;
   loginAsGuest: (name?: string) => Promise<{ success: boolean; error?: string }>;
   loginAsOwner: () => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (email: string, name?: string, avatar?: string) => Promise<{ success: boolean; require2FA?: boolean; error?: string }>;
@@ -398,7 +417,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     email: string,
     password: string,
     avatar?: string,
-    skillLevel: 'Beginner' | 'Intermediate' | 'Advanced' = 'Beginner'
+    skillLevel: 'Beginner' | 'Intermediate' | 'Advanced' = 'Beginner',
+    setupGoogleAuthenticator: boolean = false
   ) => {
     const cleanEmail = email.trim().toLowerCase();
 
@@ -407,7 +427,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, error: INVALID_EMAIL_ERROR };
     }
 
-    const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/register', {
+    const res = await safeFetchJson<{
+      user?: UserProfile;
+      token?: string;
+      requireAuthenticatorSetup?: boolean;
+      tempSignupToken?: string;
+      email?: string;
+      secret?: string;
+      rawSecret?: string;
+      otpauthUri?: string;
+      qrCodeDataUrl?: string;
+      backupCodes?: string[];
+      codePreview?: string;
+    }>('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -416,6 +448,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         password,
         avatar,
         skillLevel,
+        setupGoogleAuthenticator: Boolean(setupGoogleAuthenticator),
         entryRoute: window.location.pathname,
         deviceId
       })
@@ -425,11 +458,85 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: false, error: res.error || 'Registration failed' };
     }
 
+    // Google Authenticator Setup Step Required
+    if (res.data.requireAuthenticatorSetup && res.data.tempSignupToken) {
+      return {
+        success: true,
+        requireAuthenticatorSetup: true,
+        setupData: {
+          tempSignupToken: res.data.tempSignupToken,
+          email: res.data.email || cleanEmail,
+          secret: res.data.secret || '',
+          rawSecret: res.data.rawSecret || '',
+          otpauthUri: res.data.otpauthUri || '',
+          qrCodeDataUrl: res.data.qrCodeDataUrl || '',
+          backupCodes: res.data.backupCodes || [],
+          codePreview: res.data.codePreview
+        }
+      };
+    }
+
+    if (res.data.token && res.data.user) {
+      handleSetAuth(res.data.token, res.data.user);
+      localStorage.setItem(HAS_REGISTERED_KEY, 'true');
+      setHasRegisteredBefore(true);
+      closeAuthModal();
+      return { success: true };
+    }
+
+    return { success: false, error: 'Registration incomplete' };
+  };
+
+  const verifySignupAuthenticator = async (tempSignupToken: string, code: string) => {
+    const cleanCode = code.trim();
+    if (!cleanCode) {
+      return { success: false, error: 'Please enter verification code' };
+    }
+
+    const res = await safeFetchJson<{ user: UserProfile; token: string }>('/api/auth/signup/verify-authenticator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tempSignupToken,
+        code: cleanCode,
+        deviceId,
+        entryRoute: window.location.pathname
+      })
+    });
+
+    if (!res.ok || !res.data) {
+      return { success: false, error: res.error || 'Invalid verification code' };
+    }
+
     handleSetAuth(res.data.token, res.data.user);
     localStorage.setItem(HAS_REGISTERED_KEY, 'true');
     setHasRegisteredBefore(true);
     closeAuthModal();
     return { success: true };
+  };
+
+  const setupAuthenticator = async () => {
+    if (!token) return { success: false, error: 'Not authenticated' };
+
+    const res = await safeFetchJson<GoogleAuthenticatorSetupData & { success: boolean }>('/api/auth/2fa/setup-authenticator', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok || !res.data) {
+      return { success: false, error: res.error || 'Failed to setup Google Authenticator' };
+    }
+
+    if (user) {
+      const updated = { ...user, twoFactorEnabled: true };
+      setUser(updated);
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+    }
+
+    return { success: true, setup: res.data };
   };
 
   const login = async (email: string, password: string) => {
@@ -717,6 +824,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Methods
         login,
         register,
+        verifySignupAuthenticator,
+        setupAuthenticator,
         loginAsGuest,
         loginAsOwner,
         loginWithGoogle,

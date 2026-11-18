@@ -3,6 +3,13 @@ import path from 'path';
 import crypto from 'crypto';
 import { inferFirstNameFromEmail } from '../utils/userName.ts';
 import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation.ts';
+import {
+  createGoogleAuthenticatorSetup,
+  verifyTotp,
+  generateTotp,
+  generateBackupCodes,
+  type GoogleAuthenticatorSetup
+} from './totpService.ts';
 
 export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -118,6 +125,51 @@ export interface UniqueDeviceRecord {
   sessions: DeviceSessionDetail[];
 }
 
+export interface UserDeviceRecord {
+  deviceId: string;
+  deviceKey?: string;
+  deviceName: string;
+  deviceType: 'desktop' | 'tablet' | 'mobile';
+  os: string;
+  browser: string;
+  status: 'online' | 'offline';
+  lastActiveAt: string;
+  firstSeenAt: string;
+  sessionsCount: number;
+  entryRoute: string;
+  isCurrentDevice?: boolean;
+  sessions: DeviceSessionDetail[];
+}
+
+export interface UserGroupedDevicesRecord {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  role: UserRole;
+  avatar: string;
+  skillLevel?: string;
+  accountType: 'registered' | 'google' | 'guest';
+  status: 'online' | 'offline';
+  totalLoginsCount: number;
+  activeSessionsCount: number;
+  lastLoginAt: string;
+  createdAt: string;
+  twoFactorEnabled?: boolean;
+  devices: UserDeviceRecord[];
+}
+
+export interface UserDetailHistoryResponse {
+  user: UserProfile & { twoFactorEnabled?: boolean; createdAt: string; lastLoginAt: string; accountType?: string };
+  totalLoginCount: number;
+  successfulLoginsCount: number;
+  failedLoginsCount: number;
+  activeSessionsCount: number;
+  status: 'online' | 'offline';
+  devices: UserDeviceRecord[];
+  loginHistory: LoginEventRecord[];
+  sessions: DeviceSessionDetail[];
+}
+
 export interface TwoFactorChallenge {
   tempToken: string;
   userId: string;
@@ -127,6 +179,35 @@ export interface TwoFactorChallenge {
   clientInfo?: ClientInfo;
   expiresAt: number;
 }
+
+export interface PendingSignupChallenge {
+  tempSignupToken: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  salt: string;
+  avatar?: string;
+  skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced';
+  clientInfo?: ClientInfo;
+  secret: string; // Formatted Base32
+  rawSecret: string; // Raw Base32
+  otpauthUri: string;
+  qrCodeDataUrl: string;
+  backupCodes: string[];
+  expiresAt: number;
+}
+
+export type AuthenticatorSetupResult = {
+  requireAuthenticatorSetup: true;
+  tempSignupToken: string;
+  email: string;
+  secret: string;
+  rawSecret: string;
+  otpauthUri: string;
+  qrCodeDataUrl: string;
+  backupCodes: string[];
+  codePreview?: string;
+};
 
 export interface AppConfig {
   appTitle: string;
@@ -159,6 +240,16 @@ const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const LOGIN_LOGS_FILE = path.join(DATA_DIR, 'login_logs.json');
 const FEEDBACK_FILE = path.join(DATA_DIR, 'feedback.json');
 const APP_CONFIG_FILE = path.join(DATA_DIR, 'app_config.json');
+const REMOVED_DEVICES_FILE = path.join(DATA_DIR, 'removed_devices.json');
+
+export interface RemovedDeviceRecord {
+  id: string;
+  userId?: string;
+  deviceId?: string;
+  deviceKey: string;
+  removedAt: string;
+  removedBy: string;
+}
 
 // Predefined Owner Email configured via server-side environment
 export const OWNER_EMAIL = (process.env.OWNER_EMAIL || 'hritikyadav1612@gmail.com').toLowerCase().trim();
@@ -191,6 +282,9 @@ const defaultAppConfig: AppConfig = {
 // In-memory store for pending 2FA challenges (5 min expiry)
 const pending2FAChallenges = new Map<string, TwoFactorChallenge>();
 
+// In-memory store for pending Google Authenticator signup challenges (15 min expiry)
+const pendingSignupChallenges = new Map<string, PendingSignupChallenge>();
+
 export function maskEmail(email: string): string {
   if (!email || !email.includes('@')) return email;
   const [local, domain] = email.split('@');
@@ -221,6 +315,10 @@ function ensureDataFiles() {
 
   if (!fs.existsSync(APP_CONFIG_FILE)) {
     fs.writeFileSync(APP_CONFIG_FILE, JSON.stringify(defaultAppConfig, null, 2), 'utf-8');
+  }
+
+  if (!fs.existsSync(REMOVED_DEVICES_FILE)) {
+    fs.writeFileSync(REMOVED_DEVICES_FILE, JSON.stringify([], null, 2), 'utf-8');
   }
 }
 
@@ -360,6 +458,37 @@ function writeLogs(logs: LoginEventRecord[]) {
   fs.writeFileSync(LOGIN_LOGS_FILE, JSON.stringify(logs.slice(0, 500), null, 2), 'utf-8');
 }
 
+export function readRemovedDevices(): RemovedDeviceRecord[] {
+  ensureDataFiles();
+  try {
+    const raw = fs.readFileSync(REMOVED_DEVICES_FILE, 'utf-8');
+    return JSON.parse(raw) as RemovedDeviceRecord[];
+  } catch {
+    return [];
+  }
+}
+
+export function writeRemovedDevices(records: RemovedDeviceRecord[]) {
+  ensureDataFiles();
+  fs.writeFileSync(REMOVED_DEVICES_FILE, JSON.stringify(records, null, 2), 'utf-8');
+}
+
+export function clearRemovedDevice(deviceKey: string, deviceId?: string, userId?: string) {
+  try {
+    const records = readRemovedDevices();
+    const cleanK = deviceKey.toLowerCase().trim();
+    const cleanId = (deviceId || '').toLowerCase().trim();
+    const remaining = records.filter(r => {
+      const matchKey = r.deviceKey.toLowerCase() === cleanK || (r.deviceId && r.deviceId.toLowerCase() === cleanId);
+      const matchUser = !r.userId || !userId || r.userId === userId;
+      return !(matchKey && matchUser);
+    });
+    if (remaining.length !== records.length) {
+      writeRemovedDevices(remaining);
+    }
+  } catch {}
+}
+
 export function readFeedback(): FeedbackRecord[] {
   ensureDataFiles();
   try {
@@ -437,6 +566,8 @@ export function createSessionRecord(
   }
 
   const deviceName = `${os} • ${browser}`;
+  const deviceKey = `${deviceType}_${os}_${browser}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  clearRemovedDevice(deviceKey, deviceId, user.id);
 
   const newSession: SessionRecord = {
     id: sessionId,
@@ -509,14 +640,17 @@ export type AuthResult =
   | { user: UserProfile; token: string; session: SafeSession }
   | { require2FA: true; tempToken: string; email: string; maskedEmail: string; codePreview: string };
 
-export function registerUser(params: {
+export type RegisterResult = AuthResult | AuthenticatorSetupResult;
+
+export async function registerUser(params: {
   email: string;
   password: string;
   name: string; // Explicitly entered name
   avatar?: string;
   skillLevel?: 'Beginner' | 'Intermediate' | 'Advanced';
   clientInfo?: ClientInfo;
-}): AuthResult {
+  setupGoogleAuthenticator?: boolean;
+}): Promise<RegisterResult> {
   const users = readUsers();
   const rawEmail = (params.email || '').trim().toLowerCase();
 
@@ -563,6 +697,42 @@ export function registerUser(params: {
 
   const finalName = explicitName || inferFirstNameFromEmail(rawEmail);
 
+  // If user requested Google Authenticator (2FA) setup during signup
+  if (params.setupGoogleAuthenticator) {
+    const setup = await createGoogleAuthenticatorSetup(rawEmail, 'Pycode');
+    const tempSignupToken = `signup_2fa_${crypto.randomBytes(24).toString('hex')}`;
+    const codePreview = generateTotp(setup.rawSecret);
+
+    pendingSignupChallenges.set(tempSignupToken, {
+      tempSignupToken,
+      name: finalName,
+      email: rawEmail,
+      passwordHash,
+      salt,
+      avatar: params.avatar || '⚡',
+      skillLevel: params.skillLevel || 'Beginner',
+      clientInfo: params.clientInfo,
+      secret: setup.secret,
+      rawSecret: setup.rawSecret,
+      otpauthUri: setup.otpauthUri,
+      qrCodeDataUrl: setup.qrCodeDataUrl,
+      backupCodes: setup.backupCodes,
+      expiresAt: Date.now() + 15 * 60 * 1000 // 15 mins
+    });
+
+    return {
+      requireAuthenticatorSetup: true,
+      tempSignupToken,
+      email: rawEmail,
+      secret: setup.secret,
+      rawSecret: setup.rawSecret,
+      otpauthUri: setup.otpauthUri,
+      qrCodeDataUrl: setup.qrCodeDataUrl,
+      backupCodes: setup.backupCodes,
+      codePreview
+    };
+  }
+
   const newUser: StoredUser = {
     id: `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
     email: rawEmail,
@@ -592,6 +762,81 @@ export function registerUser(params: {
     authMethod: 'password',
     status: 'success',
     clientInfo: params.clientInfo
+  });
+
+  return { user: userProfile, token, session };
+}
+
+export function verifyAndCompleteAuthenticatorSignup(params: {
+  tempSignupToken: string;
+  code: string;
+  clientInfo?: ClientInfo;
+}): { user: UserProfile; token: string; session: SafeSession } {
+  const challenge = pendingSignupChallenges.get(params.tempSignupToken);
+  if (!challenge) {
+    throw new Error('Registration verification session expired or invalid. Please sign up again.');
+  }
+
+  if (Date.now() > challenge.expiresAt) {
+    pendingSignupChallenges.delete(params.tempSignupToken);
+    throw new Error('Setup session has expired. Please sign up again.');
+  }
+
+  const cleanCode = (params.code || '').trim().toUpperCase();
+  const isTotpValid = verifyTotp(challenge.rawSecret, cleanCode);
+  const isBackupCodeMatch = challenge.backupCodes.includes(cleanCode);
+
+  if (!isTotpValid && !isBackupCodeMatch) {
+    throw new Error('Invalid Google Authenticator code. Enter the 6-digit code from your authenticator app or an emergency backup code.');
+  }
+
+  let finalBackupCodes = [...challenge.backupCodes];
+  if (isBackupCodeMatch) {
+    finalBackupCodes = finalBackupCodes.filter(c => c !== cleanCode);
+  }
+
+  pendingSignupChallenges.delete(params.tempSignupToken);
+
+  const users = readUsers();
+  // Double check uniqueness
+  const existing = users.find(u => u.email === challenge.email);
+  if (existing) {
+    throw new Error('An account with this email was already registered.');
+  }
+
+  const now = new Date().toISOString();
+  const newUser: StoredUser = {
+    id: `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    email: challenge.email,
+    name: challenge.name,
+    avatar: challenge.avatar || '⚡',
+    role: 'member',
+    skillLevel: challenge.skillLevel || 'Beginner',
+    twoFactorEnabled: true,
+    twoFactorSecret: challenge.rawSecret,
+    backupCodes: finalBackupCodes,
+    createdAt: now,
+    lastLoginAt: now,
+    salt: challenge.salt,
+    passwordHash: challenge.passwordHash
+  };
+
+  users.push(newUser);
+  writeUsers(users);
+
+  const clientInfo = params.clientInfo || challenge.clientInfo;
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = newUser;
+  const { token, session } = createSessionRecord(userProfile, 'registered', clientInfo);
+
+  logAuthEvent({
+    userId: newUser.id,
+    name: userProfile.name,
+    email: newUser.email,
+    role: userProfile.role,
+    accountType: 'registered',
+    authMethod: '2fa',
+    status: 'success',
+    clientInfo
   });
 
   return { user: userProfile, token, session };
@@ -646,7 +891,9 @@ export function loginUser(params: {
     // Two-Step Verification Check
     if (owner.twoFactorEnabled) {
       const tempToken = `2fa_${crypto.randomBytes(24).toString('hex')}`;
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const code = owner.twoFactorSecret 
+        ? generateTotp(owner.twoFactorSecret) 
+        : Math.floor(100000 + Math.random() * 900000).toString();
       pending2FAChallenges.set(tempToken, {
         tempToken,
         userId: owner.id,
@@ -723,7 +970,9 @@ export function loginUser(params: {
   // Two-Step Verification Check
   if (user.twoFactorEnabled) {
     const tempToken = `2fa_${crypto.randomBytes(24).toString('hex')}`;
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = user.twoFactorSecret 
+      ? generateTotp(user.twoFactorSecret) 
+      : Math.floor(100000 + Math.random() * 900000).toString();
     pending2FAChallenges.set(tempToken, {
       tempToken,
       userId: user.id,
@@ -825,7 +1074,9 @@ export function loginGoogleUser(params: {
   // Two-Step Verification Check
   if (user.twoFactorEnabled) {
     const tempToken = `2fa_${crypto.randomBytes(24).toString('hex')}`;
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = user.twoFactorSecret 
+      ? generateTotp(user.twoFactorSecret) 
+      : Math.floor(100000 + Math.random() * 900000).toString();
     pending2FAChallenges.set(tempToken, {
       tempToken,
       userId: user.id,
@@ -928,12 +1179,27 @@ export function enableTwoFactor(userId: string): { backupCodes: string[] } {
   return { backupCodes };
 }
 
+export async function setupUserAuthenticator(userId: string): Promise<GoogleAuthenticatorSetup> {
+  const users = readUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) throw new Error('User not found');
+
+  const setup = await createGoogleAuthenticatorSetup(user.email, 'Pycode');
+  user.twoFactorEnabled = true;
+  user.twoFactorSecret = setup.rawSecret;
+  user.backupCodes = setup.backupCodes;
+  writeUsers(users);
+
+  return setup;
+}
+
 export function disableTwoFactor(userId: string): boolean {
   const users = readUsers();
   const user = users.find(u => u.id === userId);
   if (!user) throw new Error('User not found');
 
   user.twoFactorEnabled = false;
+  user.twoFactorSecret = undefined;
   user.backupCodes = [];
   writeUsers(users);
 
@@ -962,7 +1228,8 @@ export function verifyTwoFactorChallenge(params: {
     throw new Error('User not found');
   }
 
-  const isNumericMatch = cleanCode === challenge.code;
+  const isTotpMatch = Boolean(user.twoFactorSecret && verifyTotp(user.twoFactorSecret, cleanCode));
+  const isNumericMatch = cleanCode === challenge.code || isTotpMatch;
   const isBackupCodeMatch = Array.isArray(user.backupCodes) && user.backupCodes.includes(cleanCode);
 
   if (!isNumericMatch && !isBackupCodeMatch) {
@@ -1093,28 +1360,118 @@ export function revokeAllUserSessions(userId: string): boolean {
   return true;
 }
 
-export function revokeDeviceSessions(deviceId: string, requestingUser: UserProfile): boolean {
+export function removeDevice(
+  deviceIdOrKey: string,
+  requestingUser: UserProfile,
+  targetUserId?: string,
+  explicitDeviceKey?: string
+): boolean {
   if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
-    throw new Error('Unauthorized');
+    throw new Error('Unauthorized: Administrator or Owner privileges required');
   }
+
+  const cleanTarget = (deviceIdOrKey || '').trim().toLowerCase();
+  const cleanExplicitKey = (explicitDeviceKey || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+  if (!cleanTarget && !cleanExplicitKey) return false;
+
   const sessions = readSessions();
   const now = new Date().toISOString();
   let updated = false;
+  let matchedDevKey = cleanExplicitKey;
 
+  // 1. Terminate & invalidate all sessions corresponding to this device
   for (const s of sessions) {
-    const sDevId = s.deviceId || `dev_${s.deviceType}_${s.os}_${s.browser}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-    if (sDevId === deviceId) {
+    if (targetUserId && s.userId !== targetUserId && s.userEmail?.toLowerCase() !== targetUserId.toLowerCase()) {
+      continue;
+    }
+
+    const devType = s.deviceType || 'desktop';
+    const osName = s.os || 'Desktop';
+    const browserName = s.browser || 'Browser';
+    const devKey = `${devType}_${osName}_${browserName}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const sDevId = (s.deviceId || `dev_${devKey}`).toLowerCase().trim();
+
+    if (
+      sDevId === cleanTarget ||
+      devKey === cleanTarget ||
+      (cleanExplicitKey && devKey === cleanExplicitKey) ||
+      (s.deviceId && s.deviceId.toLowerCase() === cleanTarget) ||
+      cleanTarget.includes(devKey) ||
+      devKey.includes(cleanTarget)
+    ) {
       s.status = 'offline';
       s.logoutAt = now;
       s.expiresAt = Date.now() - 1000;
       updated = true;
+      if (!matchedDevKey) matchedDevKey = devKey;
     }
   }
 
   if (updated) {
     writeSessions(sessions);
   }
+
+  // If no session provided the normalized key, search logs
+  if (!matchedDevKey) {
+    const logs = readLogs();
+    for (const l of logs) {
+      if (targetUserId && l.userId !== targetUserId && l.email?.toLowerCase() !== targetUserId.toLowerCase()) {
+        continue;
+      }
+      const devType = l.deviceType || 'desktop';
+      const osName = l.os || 'Desktop';
+      const browserName = l.browser || 'Browser';
+      const devKey = `${devType}_${osName}_${browserName}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const lDevId = (l.deviceId || `dev_${devKey}`).toLowerCase().trim();
+      if (
+        lDevId === cleanTarget ||
+        devKey === cleanTarget ||
+        (cleanExplicitKey && devKey === cleanExplicitKey) ||
+        cleanTarget.includes(devKey) ||
+        devKey.includes(cleanTarget)
+      ) {
+        matchedDevKey = devKey;
+        break;
+      }
+    }
+  }
+
+  const effectiveKey = (matchedDevKey || cleanTarget).replace(/^dev_/, '');
+
+  // 2. Persist to removed_devices.json so the device is permanently removed from connected devices
+  const removedDevices = readRemovedDevices();
+  const exists = removedDevices.some(rd => 
+    (
+      rd.deviceKey === effectiveKey || 
+      rd.deviceKey === cleanTarget || 
+      (rd.deviceId && rd.deviceId.toLowerCase() === cleanTarget) ||
+      (cleanExplicitKey && rd.deviceKey === cleanExplicitKey)
+    ) &&
+    (!targetUserId || !rd.userId || rd.userId === targetUserId)
+  );
+
+  if (!exists) {
+    removedDevices.push({
+      id: `rem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId: targetUserId || '',
+      deviceId: deviceIdOrKey,
+      deviceKey: effectiveKey,
+      removedAt: now,
+      removedBy: requestingUser.email || requestingUser.name
+    });
+    writeRemovedDevices(removedDevices);
+  }
+
   return true;
+}
+
+export function revokeDeviceSessions(
+  deviceId: string, 
+  requestingUser: UserProfile, 
+  targetUserId?: string,
+  explicitDeviceKey?: string
+): boolean {
+  return removeDevice(deviceId, requestingUser, targetUserId, explicitDeviceKey);
 }
 
 // -------------------------------------------------------------
@@ -1143,8 +1500,21 @@ export function getOwnerUniqueDevices(requestingUser: UserProfile, currentDevice
     sessions: DeviceSessionDetail[];
   }>();
 
+  const removedDevices = readRemovedDevices();
+
   for (const s of sessions) {
-    const devId = s.deviceId || `dev_${s.deviceType}_${s.os}_${s.browser}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const devType = s.deviceType || 'desktop';
+    const osName = s.os || 'Desktop';
+    const browserName = s.browser || 'Browser';
+    const devKey = `${devType}_${osName}_${browserName}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const devId = s.deviceId || `dev_${devKey}`;
+
+    const isRemoved = removedDevices.some(r => 
+      (r.deviceKey === devKey || (r.deviceId && r.deviceId.toLowerCase() === devId.toLowerCase())) &&
+      (!r.userId || r.userId === s.userId)
+    );
+    if (isRemoved) continue;
+
     const lastActiveTime = new Date(s.lastActivityAt || s.createdAt).getTime();
     const isOnline = now - lastActiveTime < 90 * 1000 && s.expiresAt > now && !s.logoutAt;
     const computedStatus: 'online' | 'offline' | 'expired' = s.logoutAt 
@@ -1247,6 +1617,432 @@ export function getOwnerUniqueDevices(requestingUser: UserProfile, currentDevice
   });
 
   return result;
+}
+
+/**
+ * Groups connected devices and sessions strictly by user rather than device type,
+ * with complete deduplication so each device appears only once per user.
+ */
+export function getUserGroupedDevices(requestingUser: UserProfile, currentDeviceId?: string): UserGroupedDevicesRecord[] {
+  if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized: Administrator or Owner privileges required');
+  }
+
+  const users = readUsers();
+  const sessions = readSessions();
+  const logs = readLogs();
+  const now = Date.now();
+
+  const userMap = new Map<string, UserGroupedDevicesRecord>();
+
+  const formatDuration = (s: SessionRecord, isOnline: boolean, lastActiveTime: number) => {
+    const startMs = new Date(s.createdAt).getTime();
+    const endMs = s.logoutAt ? new Date(s.logoutAt).getTime() : (isOnline ? now : lastActiveTime);
+    const durationMins = Math.max(1, Math.round((endMs - startMs) / 60000));
+    if (durationMins < 60) {
+      return `${durationMins}m${isOnline ? ' (Active)' : ''}`;
+    } else {
+      const hours = Math.floor(durationMins / 60);
+      const mins = durationMins % 60;
+      return `${hours}h ${mins}m${isOnline ? ' (Active)' : ''}`;
+    }
+  };
+
+  const processUser = (
+    u: { id: string; name: string; email: string; role: UserRole; avatar?: string; skillLevel?: string; createdAt?: string; lastLoginAt?: string; twoFactorEnabled?: boolean },
+    accountType: 'registered' | 'google' | 'guest'
+  ): UserGroupedDevicesRecord => {
+    const emailLower = (u.email || '').toLowerCase().trim();
+    const userSessions = sessions.filter(s => 
+      (s.userId && s.userId === u.id) || 
+      (s.userEmail && s.userEmail.toLowerCase().trim() === emailLower)
+    );
+    const userLogs = logs.filter(l => 
+      (l.userId && l.userId === u.id) || 
+      (l.email && l.email.toLowerCase().trim() === emailLower)
+    );
+
+    const removedList = readRemovedDevices();
+    const isDeviceRemoved = (devKey: string, devId?: string) => {
+      const cleanK = devKey.toLowerCase().replace(/^dev_/, '').trim();
+      const cleanId = (devId || '').toLowerCase().trim();
+      return removedList.some(r => {
+        const rKey = (r.deviceKey || '').toLowerCase().replace(/^dev_/, '').trim();
+        const rId = (r.deviceId || '').toLowerCase().trim();
+        const matchUser = !r.userId || r.userId === u.id;
+        const matchKey = rKey === cleanK || rKey.includes(cleanK) || cleanK.includes(rKey);
+        const matchId = (cleanId && rId === cleanId) || (cleanId && rKey === cleanId) || (rId && cleanK === rId);
+        return matchUser && (matchKey || matchId);
+      });
+    };
+
+    // Deduplicate devices by normalized key: `${deviceType}_${os}_${browser}`
+    // Eliminates random device ID duplicate entries
+    const deviceMap = new Map<string, {
+      deviceId: string;
+      deviceKey: string;
+      deviceName: string;
+      deviceType: 'desktop' | 'tablet' | 'mobile';
+      os: string;
+      browser: string;
+      status: 'online' | 'offline';
+      lastActiveAt: string;
+      firstSeenAt: string;
+      sessionsCount: number;
+      entryRoute: string;
+      sessions: DeviceSessionDetail[];
+    }>();
+
+    let userIsOnline = false;
+    let activeSessionsCount = 0;
+
+    for (const s of userSessions) {
+      const devType = s.deviceType || 'desktop';
+      const osName = s.os || 'Desktop';
+      const browserName = s.browser || 'Browser';
+      const normalizedKey = `${devType}_${osName}_${browserName}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+      // Skip devices that have been permanently removed/revoked
+      if (isDeviceRemoved(normalizedKey, s.deviceId)) {
+        continue;
+      }
+
+      const lastActiveTime = new Date(s.lastActivityAt || s.createdAt).getTime();
+      const isOnline = now - lastActiveTime < 90 * 1000 && s.expiresAt > now && !s.logoutAt;
+      if (isOnline) {
+        userIsOnline = true;
+        activeSessionsCount++;
+      }
+
+      const computedStatus: 'online' | 'offline' | 'expired' = s.logoutAt 
+        ? 'offline' 
+        : (now > s.expiresAt ? 'expired' : (isOnline ? 'online' : 'offline'));
+
+      const sessionDetail: DeviceSessionDetail = {
+        sessionId: s.id,
+        userId: s.userId || u.id,
+        userName: s.userName || u.name,
+        userEmail: s.userEmail || u.email,
+        role: s.role || u.role,
+        accountType: s.accountType || accountType,
+        loginAt: s.createdAt,
+        logoutAt: s.logoutAt,
+        lastActivityAt: s.lastActivityAt,
+        durationFormatted: formatDuration(s, isOnline, lastActiveTime),
+        entryRoute: s.entryRoute || '/',
+        status: computedStatus
+      };
+
+      if (!deviceMap.has(normalizedKey)) {
+        const devName = s.deviceName || `${osName} • ${browserName}`;
+        deviceMap.set(normalizedKey, {
+          deviceId: s.deviceId || `dev_${normalizedKey}`,
+          deviceKey: normalizedKey,
+          deviceName: devName,
+          deviceType: devType,
+          os: osName,
+          browser: browserName,
+          status: isOnline ? 'online' : 'offline',
+          lastActiveAt: s.lastActivityAt || s.createdAt,
+          firstSeenAt: s.createdAt,
+          sessionsCount: 0,
+          entryRoute: s.entryRoute || '/',
+          sessions: []
+        });
+      }
+
+      const dev = deviceMap.get(normalizedKey)!;
+      dev.sessionsCount++;
+      dev.sessions.push(sessionDetail);
+      if (isOnline) {
+        dev.status = 'online';
+      }
+      if (new Date(s.createdAt).getTime() < new Date(dev.firstSeenAt).getTime()) {
+        dev.firstSeenAt = s.createdAt;
+      }
+      if (lastActiveTime > new Date(dev.lastActiveAt).getTime()) {
+        dev.lastActiveAt = s.lastActivityAt || s.createdAt;
+      }
+    }
+
+    // Check logs for devices that might not have active sessions
+    for (const l of userLogs) {
+      const devType = l.deviceType || 'desktop';
+      const osName = l.os || 'Desktop';
+      const browserName = l.browser || 'Browser';
+      const normalizedKey = `${devType}_${osName}_${browserName}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+      if (isDeviceRemoved(normalizedKey, l.deviceId)) {
+        continue;
+      }
+
+      if (!deviceMap.has(normalizedKey)) {
+        deviceMap.set(normalizedKey, {
+          deviceId: l.deviceId || `dev_${normalizedKey}`,
+          deviceKey: normalizedKey,
+          deviceName: `${osName} • ${browserName}`,
+          deviceType: devType,
+          os: osName,
+          browser: browserName,
+          status: 'offline',
+          lastActiveAt: l.timestamp,
+          firstSeenAt: l.timestamp,
+          sessionsCount: 1,
+          entryRoute: l.entryRoute || '/',
+          sessions: []
+        });
+      }
+    }
+
+    const devicesList: UserDeviceRecord[] = Array.from(deviceMap.values()).map(d => ({
+      ...d,
+      isCurrentDevice: currentDeviceId ? (d.deviceId === currentDeviceId || d.deviceKey === currentDeviceId) : false
+    }));
+
+    devicesList.sort((a, b) => {
+      if (a.status === 'online' && b.status !== 'online') return -1;
+      if (a.status !== 'online' && b.status === 'online') return 1;
+      return new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
+    });
+
+    const totalLoginsCount = Math.max(userLogs.length, userSessions.length, 1);
+    const newestLastLogin = u.lastLoginAt || 
+      (userSessions[0]?.createdAt) || 
+      (userLogs[0]?.timestamp) || 
+      u.createdAt || 
+      new Date().toISOString();
+
+    return {
+      userId: u.id,
+      userName: u.name || inferFirstNameFromEmail(u.email),
+      userEmail: u.email,
+      role: u.role,
+      avatar: u.avatar || '👤',
+      skillLevel: u.skillLevel || 'Beginner',
+      accountType,
+      status: userIsOnline ? 'online' : 'offline',
+      totalLoginsCount,
+      activeSessionsCount,
+      lastLoginAt: newestLastLogin,
+      createdAt: u.createdAt || newestLastLogin,
+      twoFactorEnabled: Boolean(u.twoFactorEnabled),
+      devices: devicesList
+    };
+  };
+
+  for (const u of users) {
+    const accType = u.email === OWNER_EMAIL ? 'registered' : (u.id.includes('google') ? 'google' : 'registered');
+    userMap.set(u.id, processUser(u, accType));
+  }
+
+  for (const s of sessions) {
+    if (s.accountType === 'guest' && s.userId && !userMap.has(s.userId)) {
+      userMap.set(s.userId, processUser({
+        id: s.userId,
+        name: s.userName || 'Guest Viewer',
+        email: s.userEmail || `${s.userId}@pycode.guest`,
+        role: s.role || 'viewer',
+        avatar: '⚡',
+        createdAt: s.createdAt,
+        lastLoginAt: s.createdAt
+      }, 'guest'));
+    }
+  }
+
+  const result = Array.from(userMap.values());
+
+  result.sort((a, b) => {
+    if (a.status === 'online' && b.status !== 'online') return -1;
+    if (a.status !== 'online' && b.status === 'online') return 1;
+    if (a.role === 'owner' && b.role !== 'owner') return -1;
+    if (a.role !== 'owner' && b.role === 'owner') return 1;
+    if (a.role === 'admin' && b.role !== 'admin') return -1;
+    if (a.role !== 'admin' && b.role === 'admin') return 1;
+    return new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime();
+  });
+
+  return result;
+}
+
+/**
+ * Returns complete user detail history with total login count and full chronological event list.
+ */
+export function getUserDetailHistory(targetUserIdOrEmail: string, requestingUser: UserProfile): UserDetailHistoryResponse {
+  if (requestingUser.role !== 'owner' && requestingUser.role !== 'admin') {
+    throw new Error('Unauthorized');
+  }
+
+  const targetId = (targetUserIdOrEmail || '').trim();
+  const users = readUsers();
+  const sessions = readSessions();
+  const logs = readLogs();
+  const now = Date.now();
+
+  let targetUser = users.find(u => u.id === targetId || u.email.toLowerCase() === targetId.toLowerCase());
+
+  if (!targetUser) {
+    const guestSess = sessions.find(s => s.userId === targetId || (s.userEmail && s.userEmail.toLowerCase() === targetId.toLowerCase()));
+    if (guestSess) {
+      targetUser = {
+        id: guestSess.userId,
+        name: guestSess.userName || 'Guest User',
+        email: guestSess.userEmail || `${guestSess.userId}@pycode.guest`,
+        avatar: '⚡',
+        role: guestSess.role || 'viewer',
+        skillLevel: 'Beginner',
+        createdAt: guestSess.createdAt,
+        lastLoginAt: guestSess.createdAt,
+        salt: '',
+        passwordHash: ''
+      };
+    }
+  }
+
+  if (!targetUser) {
+    throw new Error('User not found');
+  }
+
+  const emailLower = (targetUser.email || '').toLowerCase().trim();
+  const userSessions = sessions.filter(s => 
+    (s.userId && s.userId === targetUser!.id) || 
+    (s.userEmail && s.userEmail.toLowerCase().trim() === emailLower)
+  );
+
+  const userLogs = logs.filter(l => 
+    (l.userId && l.userId === targetUser!.id) || 
+    (l.email && l.email.toLowerCase().trim() === emailLower)
+  );
+
+  const allEventsMap = new Map<string, LoginEventRecord>();
+  for (const l of userLogs) {
+    allEventsMap.set(l.id, l);
+  }
+
+  for (const s of userSessions) {
+    const syntheticId = `evt_sess_${s.id}`;
+    if (!allEventsMap.has(syntheticId)) {
+      allEventsMap.set(syntheticId, {
+        id: syntheticId,
+        userId: s.userId,
+        name: s.userName || targetUser.name,
+        email: s.userEmail || targetUser.email,
+        role: s.role,
+        accountType: s.accountType,
+        authMethod: s.accountType === 'google' ? 'google' : (s.accountType === 'guest' ? 'guest' : 'password'),
+        status: 'success',
+        timestamp: s.createdAt,
+        deviceId: s.deviceId,
+        deviceType: s.deviceType || 'desktop',
+        browser: s.browser || 'Browser',
+        os: s.os || 'Desktop',
+        entryRoute: s.entryRoute || '/'
+      });
+    }
+  }
+
+  const chronologicalEvents = Array.from(allEventsMap.values()).sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+
+  const totalLoginCount = chronologicalEvents.length;
+  const successfulLoginsCount = chronologicalEvents.filter(e => e.status === 'success').length;
+  const failedLoginsCount = chronologicalEvents.filter(e => e.status === 'failed').length;
+
+  const deviceMap = new Map<string, UserDeviceRecord>();
+  let userIsOnline = false;
+  let activeSessionsCount = 0;
+  const removedList = readRemovedDevices();
+
+  for (const s of userSessions) {
+    const devType = s.deviceType || 'desktop';
+    const osName = s.os || 'Desktop';
+    const browserName = s.browser || 'Browser';
+    const normalizedKey = `${devType}_${osName}_${browserName}`.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+    const isRemoved = removedList.some(r => {
+      const rKey = (r.deviceKey || '').toLowerCase().replace(/^dev_/, '').trim();
+      const rId = (r.deviceId || '').toLowerCase().trim();
+      const cleanK = normalizedKey.replace(/^dev_/, '').trim();
+      const cleanId = (s.deviceId || '').toLowerCase().trim();
+      const matchUser = !r.userId || r.userId === targetUser!.id;
+      const matchKey = rKey === cleanK || rKey.includes(cleanK) || cleanK.includes(rKey);
+      const matchId = (cleanId && rId === cleanId) || (cleanId && rKey === cleanId) || (rId && cleanK === rId);
+      return matchUser && (matchKey || matchId);
+    });
+    if (isRemoved) continue;
+
+    const lastActiveTime = new Date(s.lastActivityAt || s.createdAt).getTime();
+    const isOnline = now - lastActiveTime < 90 * 1000 && s.expiresAt > now && !s.logoutAt;
+    if (isOnline) {
+      userIsOnline = true;
+      activeSessionsCount++;
+    }
+
+    if (!deviceMap.has(normalizedKey)) {
+      deviceMap.set(normalizedKey, {
+        deviceId: s.deviceId || `dev_${normalizedKey}`,
+        deviceKey: normalizedKey,
+        deviceName: s.deviceName || `${osName} • ${browserName}`,
+        deviceType: devType,
+        os: osName,
+        browser: browserName,
+        status: isOnline ? 'online' : 'offline',
+        lastActiveAt: s.lastActivityAt || s.createdAt,
+        firstSeenAt: s.createdAt,
+        sessionsCount: 0,
+        entryRoute: s.entryRoute || '/',
+        sessions: []
+      });
+    }
+
+    const dev = deviceMap.get(normalizedKey)!;
+    dev.sessionsCount++;
+    if (isOnline) dev.status = 'online';
+    if (new Date(s.createdAt).getTime() < new Date(dev.firstSeenAt).getTime()) dev.firstSeenAt = s.createdAt;
+    if (lastActiveTime > new Date(dev.lastActiveAt).getTime()) dev.lastActiveAt = s.lastActivityAt || s.createdAt;
+
+    dev.sessions.push({
+      sessionId: s.id,
+      userId: s.userId,
+      userName: s.userName,
+      userEmail: s.userEmail,
+      role: s.role,
+      accountType: s.accountType,
+      loginAt: s.createdAt,
+      logoutAt: s.logoutAt,
+      lastActivityAt: s.lastActivityAt,
+      durationFormatted: isOnline ? 'Active Now' : 'Completed',
+      entryRoute: s.entryRoute || '/',
+      status: s.logoutAt ? 'offline' : (now > s.expiresAt ? 'expired' : (isOnline ? 'online' : 'offline'))
+    });
+  }
+
+  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...safeProfile } = targetUser;
+
+  return {
+    user: safeProfile,
+    totalLoginCount,
+    successfulLoginsCount,
+    failedLoginsCount,
+    activeSessionsCount,
+    status: userIsOnline ? 'online' : 'offline',
+    devices: Array.from(deviceMap.values()),
+    loginHistory: chronologicalEvents,
+    sessions: userSessions.map(s => ({
+      sessionId: s.id,
+      userId: s.userId,
+      userName: s.userName,
+      userEmail: s.userEmail,
+      role: s.role,
+      accountType: s.accountType,
+      loginAt: s.createdAt,
+      logoutAt: s.logoutAt,
+      lastActivityAt: s.lastActivityAt,
+      durationFormatted: s.status === 'online' ? 'Active Now' : 'Completed',
+      entryRoute: s.entryRoute || '/',
+      status: s.status
+    }))
+  };
 }
 
 // -------------------------------------------------------------

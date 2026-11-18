@@ -43,7 +43,7 @@
     "role": "owner",
     "skillLevel": "Intermediate",
     "createdAt": "2026-10-29T05:20:25.988Z",
-    "lastLoginAt": "2026-11-04T07:01:18.234Z",
+    "lastLoginAt": "2026-11-11T19:43:09.395Z",
     "salt": "03ff6d5d50f479c5b5bc1bd930b54b36",
     "passwordHash": "abc0b8abaa91abe9fd9df7e944f3da6656a145d1482ae9908da5f7ef1894cdaef8d7f75a7ac463cae7d0a9b5f08354c96f5c3ca157c18b0639eb7c06c1b3adf4",
     "twoFactorEnabled": false,
@@ -168,5 +168,52 @@
     "lastLoginAt": "2026-11-04T07:01:18.312Z",
     "passwordHash": "ef66cd014544211c742c2342eb61cb114b570404a9eb6962d24047b12e7b8a67fa86350b91343366d7709e224e271f41d4bcbdcb811b63b7336ef979a685298d",
     "salt": "9cc0225d7fab9bb2ef41592110b97e1a"
+  },
+  {
+    "id": "usr_1794246804286_0a99eb85",
+    "email": "test_totp_1794246804100@example.com",
+    "name": "Alex Dev",
+    "avatar": "⚡",
+    "role": "member",
+    "skillLevel": "Beginner",
+    "twoFactorEnabled": false,
+    "createdAt": "2026-11-09T17:53:24.286Z",
+    "lastLoginAt": "2026-11-09T17:53:24.286Z",
+    "salt": "11ed20ae728c648ec491ac268f14c08a",
+    "passwordHash": "3fecbe174aebe87544dd80d54c9e12720827d10b2b8ef7266d9b04b75111089c22e5252d67c212cb8d4383d0c626319cb3b62de30650979d02412b25d91b54f0"
+  },
+  {
+    "id": "usr_1794246816163_b4936056",
+    "email": "test_totp_1794246815907@example.com",
+    "name": "Alex Dev",
+    "avatar": "⚡",
+    "role": "member",
+    "skillLevel": "Beginner",
+    "twoFactorEnabled": true,
+    "twoFactorSecret": "5BLBNEQ3WZLNIIULEJ6D6F75CJWHOSMJ",
+    "backupCodes": [
+      "C352-35A0",
+      "FE53-EAAF",
+      "55AF-FF93",
+      "29CF-4447",
+      "4AEB-D669"
+    ],
+    "createdAt": "2026-11-09T17:53:36.163Z",
+    "lastLoginAt": "2026-11-09T17:53:36.256Z",
+    "salt": "5098dca6e6b718ee6010b871c8969df6",
+    "passwordHash": "485b0d05e1cb6b48259ecc8978226d0ba80e8f9d3e9d140b8d53f245d3e52c5e2288b61898f0eb3ec441367c95eddfeaa2b1a1cace4dfb164c3a86b2a677d992"
+  },
+  {
+    "id": "usr_1794246822882_6eaec99a",
+    "email": "standard_1794246822727@example.com",
+    "name": "Standard User",
+    "avatar": "⚡",
+    "role": "member",
+    "skillLevel": "Beginner",
+    "twoFactorEnabled": false,
+    "createdAt": "2026-11-09T17:53:42.882Z",
+    "lastLoginAt": "2026-11-09T17:53:42.882Z",
+    "salt": "a1b3ed7a6bc538b5add708cff9db4265",
+    "passwordHash": "ed5f4b8dc639be4626a83cd8e5d183c34ce709c5b17286bfd6e0700dad93377ef35a195c847fd95dc65863df5d6cb15a950f45d4d1c9e3b7c5b3b0d8d783dedb"
   }
 ]

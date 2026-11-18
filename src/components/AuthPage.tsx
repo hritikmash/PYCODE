@@ -13,15 +13,24 @@ import {
   Shield,
   CheckCircle2
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, GoogleAuthenticatorSetupData } from '../context/AuthContext';
 import { GoogleLoginWindow } from './GoogleLoginWindow';
 import { TwoFactorModal } from './TwoFactorModal';
+import { GoogleAuthenticatorStep } from './GoogleAuthenticatorStep';
 import { isValidEmail, INVALID_EMAIL_ERROR } from '../utils/validation';
 
 const AVATAR_OPTIONS = ['🐍', '⚡', '🚀', '🧠', '💻', '🤖', '🔮', '✨'];
 
 export const AuthPage: React.FC = () => {
-  const { login, register, loginAsGuest, openGoogleWindow, signInWithFirebaseGoogle, hasRegisteredBefore } = useAuth();
+  const { 
+    login, 
+    register, 
+    verifySignupAuthenticator,
+    loginAsGuest, 
+    openGoogleWindow, 
+    signInWithFirebaseGoogle, 
+    hasRegisteredBefore 
+  } = useAuth();
 
   // If user has registered before, default to 'signin'; otherwise initial screen defaults to 'signup'
   const [activeTab, setActiveTab] = useState<'signin' | 'signup' | 'guest'>(() => 
@@ -39,6 +48,9 @@ export const AuthPage: React.FC = () => {
   const [selectedAvatar, setSelectedAvatar] = useState('🐍');
   const [skillLevel, setSkillLevel] = useState<'Beginner' | 'Intermediate' | 'Advanced'>('Beginner');
   const [guestName, setGuestName] = useState('');
+
+  const [protectWithGoogleAuth, setProtectWithGoogleAuth] = useState(true);
+  const [signupSetupData, setSignupSetupData] = useState<GoogleAuthenticatorSetupData | null>(null);
 
   // UI states
   const [showPassword, setShowPassword] = useState(false);
@@ -85,8 +97,21 @@ export const AuthPage: React.FC = () => {
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const res = await register(name.trim(), email.trim(), password, selectedAvatar, skillLevel);
+    const res = await register(
+      name.trim(), 
+      email.trim(), 
+      password, 
+      selectedAvatar, 
+      skillLevel, 
+      protectWithGoogleAuth
+    );
     setIsSubmitting(false);
+
+    if (res.requireAuthenticatorSetup && res.setupData) {
+      setSignupSetupData(res.setupData);
+      return;
+    }
+
     if (!res.success) {
       setErrorMessage(res.error || 'Failed to create account');
     }
@@ -305,6 +330,13 @@ export const AuthPage: React.FC = () => {
 
           {/* TAB: SIGN UP (Section 1: Personalized preferred display name) */}
           {activeTab === 'signup' && (
+            signupSetupData ? (
+              <GoogleAuthenticatorStep
+                setupData={signupSetupData}
+                onVerify={(code) => verifySignupAuthenticator(signupSetupData.tempSignupToken, code)}
+                onBack={() => setSignupSetupData(null)}
+              />
+            ) : (
             <div className="space-y-4">
               {/* Google Sign In Option */}
               <button
@@ -406,12 +438,35 @@ export const AuthPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Google Authenticator (2FA) Option */}
+                <div className="p-3 rounded-xl bg-[#141516] border border-[#282a2c] hover:border-sky-500/40 transition-colors">
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={protectWithGoogleAuth}
+                      onChange={(e) => setProtectWithGoogleAuth(e.target.checked)}
+                      className="mt-0.5 rounded border-[#3b3d40] text-sky-500 focus:ring-sky-400 bg-[#1c1d1f] cursor-pointer"
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-semibold text-white">Protect account with Google Authenticator</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-300 font-medium border border-sky-400/30">
+                          Recommended
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#8e918f] leading-relaxed">
+                        Generate a scannable QR code during sign up to link 6-digit TOTP security for iOS and Android.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="w-full py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-semibold text-xs transition-all shadow-md active:scale-[0.99] cursor-pointer disabled:opacity-50 mt-1"
                 >
-                  {isSubmitting ? 'Creating account...' : 'Create Account'}
+                  {isSubmitting ? 'Creating account...' : protectWithGoogleAuth ? 'Continue to Authenticator Setup' : 'Create Account'}
                 </button>
               </form>
 
@@ -426,6 +481,7 @@ export const AuthPage: React.FC = () => {
                 </button>
               </div>
             </div>
+            )
           )}
 
           {/* TAB: GUEST (Temporary guest session) */}
