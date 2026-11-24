@@ -83,111 +83,125 @@ export async function analyzePyFixSubmission(params: {
 
   const ai = getGenAI();
 
-  const requestConfig = {
-    model: 'gemini-4-hydrogen',
-    contents: userPrompt,
-    config: {
-      systemInstruction,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          corrected_code: {
-            type: Type.STRING,
-            description: 'The complete, corrected, runnable Python code.',
+  const modelsToTry = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
+  const baseConfig = {
+    systemInstruction,
+    responseMimeType: 'application/json',
+    responseSchema: {
+      type: Type.OBJECT,
+      properties: {
+        corrected_code: {
+          type: Type.STRING,
+          description: 'The complete, corrected, runnable Python code.',
+        },
+        error_analysis: {
+          type: Type.OBJECT,
+          properties: {
+            has_error: { type: Type.BOOLEAN },
+            error_type: { type: Type.STRING },
+            error_line: { type: Type.INTEGER },
+            plain_english_reason: { type: Type.STRING },
+            fix_summary: { type: Type.STRING },
           },
-          error_analysis: {
+          required: [
+            'has_error',
+            'error_type',
+            'error_line',
+            'plain_english_reason',
+            'fix_summary',
+          ],
+        },
+        step_by_step_explanation: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: 'Ordered plain-English explanation steps referencing key functions.',
+        },
+        functions_breakdown: {
+          type: Type.ARRAY,
+          items: {
             type: Type.OBJECT,
             properties: {
-              has_error: { type: Type.BOOLEAN },
-              error_type: { type: Type.STRING },
-              error_line: { type: Type.INTEGER },
-              plain_english_reason: { type: Type.STRING },
-              fix_summary: { type: Type.STRING },
+              name: { type: Type.STRING },
+              syntax: { type: Type.STRING },
+              purpose: { type: Type.STRING },
+              time_complexity: { type: Type.STRING },
+              mini_example: { type: Type.STRING },
             },
-            required: [
-              'has_error',
-              'error_type',
-              'error_line',
-              'plain_english_reason',
-              'fix_summary',
-            ],
-          },
-          step_by_step_explanation: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: 'Ordered plain-English explanation steps referencing key functions.',
-          },
-          functions_breakdown: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                name: { type: Type.STRING },
-                syntax: { type: Type.STRING },
-                purpose: { type: Type.STRING },
-                time_complexity: { type: Type.STRING },
-                mini_example: { type: Type.STRING },
-              },
-              required: ['name', 'syntax', 'purpose', 'time_complexity', 'mini_example'],
-            },
-          },
-          tokens_used: {
-            type: Type.INTEGER,
-            description: 'Approximate token count.',
+            required: ['name', 'syntax', 'purpose', 'time_complexity', 'mini_example'],
           },
         },
-        required: [
-          'corrected_code',
-          'error_analysis',
-          'step_by_step_explanation',
-          'functions_breakdown',
-          'tokens_used',
-        ],
+        tokens_used: {
+          type: Type.INTEGER,
+          description: 'Approximate token count.',
+        },
       },
+      required: [
+        'corrected_code',
+        'error_analysis',
+        'step_by_step_explanation',
+        'functions_breakdown',
+        'tokens_used',
+      ],
     },
   };
 
   let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
   let lastError: unknown = null;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      response = await ai.models.generateContent(requestConfig);
-      break;
-    } catch (err: any) {
-      lastError = err;
-      const msg = String(err?.message || err || '');
-      const status = err?.status || err?.code;
-      const isTransient =
-        status === 503 ||
-        status === 429 ||
-        msg.includes('503') ||
-        msg.includes('UNAVAILABLE') ||
-        msg.includes('RESOURCE_EXHAUSTED');
-
-      if (isTransient && attempt < 2) {
-        const delayMs = 700 * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        continue;
-      }
-
-      // Extract readable message if SDK threw JSON string
-      let cleanMsg = msg;
+  for (const targetModel of modelsToTry) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let timer: NodeJS.Timeout | null = null;
       try {
-        const parsedErr = JSON.parse(msg);
-        if (parsedErr?.error?.message) {
-          cleanMsg = parsedErr.error.message;
+        const generatePromise = ai.models.generateContent({
+          model: targetModel,
+          contents: userPrompt,
+          config: baseConfig,
+        });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Timeout on ${targetModel}`)), 20000);
+        });
+        response = await Promise.race([generatePromise, timeoutPromise]);
+        if (response?.text) {
+          break;
         }
-      } catch {
-        // Use raw message
+      } catch (err: any) {
+        lastError = err;
+        const msg = String(err?.message || err || '');
+        const status = err?.status || err?.code;
+        const isTransient =
+          status === 503 ||
+          status === 429 ||
+          msg.includes('503') ||
+          msg.includes('Timeout') ||
+          msg.includes('UNAVAILABLE') ||
+          msg.includes('RESOURCE_EXHAUSTED');
+
+        if (isTransient && attempt < 1) {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          continue;
+        }
+        break;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      throw new Error(cleanMsg || 'Gemini API request failed.');
+    }
+    if (response?.text) {
+      break;
     }
   }
 
   if (!response) {
-    throw new Error(String((lastError as any)?.message || 'Gemini API request failed.'));
+    const rawMsg = String((lastError as any)?.message || 'Gemini API request failed.');
+    let cleanMsg = rawMsg;
+    try {
+      const parsedErr = JSON.parse(rawMsg);
+      if (parsedErr?.error?.message) {
+        cleanMsg = parsedErr.error.message;
+      }
+    } catch {
+      // Use raw message
+    }
+    throw new Error(cleanMsg || 'Gemini API request failed.');
   }
 
   const rawText = (response.text ?? '').trim();

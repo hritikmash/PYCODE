@@ -38,6 +38,7 @@ import { TerminalOutput } from './TerminalOutput';
 import { ExecutionTraceViewer } from './ExecutionTraceViewer';
 import { GeminiResponseActions } from './GeminiResponseActions';
 import { SearchEngineFallbackBanner } from './SearchEngineFallbackBanner';
+import { DEFAULT_BUILTIN_ENGINE_ID } from '../constants/aiEngines';
 
 interface GeminiSolutionViewProps {
   result: PythonDecodeResponse;
@@ -52,7 +53,7 @@ interface GeminiSolutionViewProps {
 
 export const GeminiSolutionView: React.FC<GeminiSolutionViewProps> = ({
   result,
-  engine = 'gemini',
+  engine = DEFAULT_BUILTIN_ENGINE_ID,
   mode,
   userCode,
   onSendMessage,

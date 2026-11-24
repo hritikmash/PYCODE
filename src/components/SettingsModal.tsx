@@ -37,7 +37,6 @@ import {
 } from 'lucide-react';
 import { useAuth, UserProfile } from '../context/AuthContext';
 import {
-  AI_ENGINES,
   BUILTIN_DEFAULT_ENGINE,
   EXTERNAL_ENGINES,
   getAvailableWorkspaceEngines
@@ -349,7 +348,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           setCfgBannerEnabled(Boolean(data.config.announcementBanner?.enabled));
           setCfgBannerMessage(data.config.announcementBanner?.message || '');
           setCfgBannerType(data.config.announcementBanner?.type || 'info');
-          setCfgDefaultEngine(data.config.defaultEngine || 'turbo_race');
+          const availableIds = new Set(
+            getAvailableWorkspaceEngines(connectedExternalEngines).map((e) => e.id)
+          );
+          const loadedEngine = data.config.defaultEngine;
+          setCfgDefaultEngine(
+            loadedEngine && availableIds.has(loadedEngine)
+              ? loadedEngine
+              : BUILTIN_DEFAULT_ENGINE.id
+          );
           setCfgDefaultMode(data.config.defaultMode || 'both');
           setCfgSandboxEnabled(data.config.features?.sandboxExecution !== false);
           setCfgFlowchartsEnabled(data.config.features?.interactiveFlowcharts !== false);
@@ -1213,7 +1220,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={(e) => setCfgDefaultEngine(e.target.value as any)}
                         className="w-full px-3 py-2 bg-[#191a1a] border border-[#2d3131] focus:border-[#20b8cd] rounded-xl text-xs text-white outline-none cursor-pointer"
                       >
-                        {AI_ENGINES.map((eng) => (
+                        {getAvailableWorkspaceEngines(connectedExternalEngines).map((eng) => (
                           <option key={eng.id} value={eng.id}>
                             {eng.name} ({eng.provider})
                           </option>

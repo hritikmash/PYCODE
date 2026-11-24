@@ -6,7 +6,7 @@
     "message": "Welcome to Pycode! Administrator delegated edit rights active.",
     "type": "success"
   },
-  "defaultEngine": "gemini-3.8-flash",
+  "defaultEngine": "turbo_race",
   "defaultMode": "both",
   "features": {
     "sandboxExecution": true,

@@ -288,7 +288,7 @@ export default function App() {
       attachments: lastMsg?.attachments,
       analysisResult: lastMsg?.analysisResult,
       quickPyOutput: lastMsg?.quickPyOutput,
-      engine: s.engine || 'gemini',
+      engine: s.engine || DEFAULT_BUILTIN_ENGINE_ID,
       mode: s.mode || 'both',
       messages: s.messages
     };
@@ -799,7 +799,7 @@ ${analysisResult.expectedOutput}`;
                     ) : result ? (
                       <GeminiSolutionView
                         result={result}
-                        engine={msg.engine || 'gemini'}
+                        engine={msg.engine || DEFAULT_BUILTIN_ENGINE_ID}
                         mode={msg.mode || activeMode}
                         userCode={msg.code}
                         onSendMessage={handleSendMessage}

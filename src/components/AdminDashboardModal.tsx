@@ -300,6 +300,18 @@ export const AdminDashboardModal: React.FC = () => {
     }
   }, [lastMessage, isAdminModalOpen]);
 
+  // Escape closes detail drawer cleanly
+  useEffect(() => {
+    if (!isAdminModalOpen || !selectedUserId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleBackFromUserDetail();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isAdminModalOpen, selectedUserId]);
+
 
   const handleRevokeSession = async (sessionId: string) => {
     try {
@@ -699,475 +711,27 @@ export const AdminDashboardModal: React.FC = () => {
           </div>
 
           {/* Search */}
-          {!selectedUserId && (
-            <div className="relative pb-2">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#858585]" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search users / devices..."
-                className="pl-8 pr-3 py-1.5 bg-[#131414] border border-[#2d3131] rounded-xl text-xs text-white placeholder-[#5c6166] outline-none w-48 sm:w-64"
-              />
-            </div>
-          )}
+          <div className="relative pb-2">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#858585]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search users / devices..."
+              className="pl-8 pr-3 py-1.5 bg-[#131414] border border-[#2d3131] rounded-xl text-xs text-white placeholder-[#5c6166] outline-none w-48 sm:w-64"
+            />
+          </div>
         </div>
 
         {/* Tab Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          
-          {/* USER DETAILED VIEW: COMPLETE LOGIN HISTORY (TIMESTAMPS & TOTAL LOGIN COUNT) */}
-          {selectedUserId ? (
-            <div className="space-y-5 animate-in fade-in duration-150">
-              {/* Back Bar & User Action Header */}
-              <div className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleBackFromUserDetail}
-                    className="px-3 py-1.5 rounded-xl bg-[#202222] hover:bg-[#282a2c] text-[#858585] hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    <span>Back to {activeTab === 'devices' ? 'Connected Devices' : 'Users & Roles'}</span>
-                  </button>
-
-                  <div className="h-4 w-px bg-[#2d3131] hidden sm:block" />
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-[#858585]">Inspecting:</span>
-                    <strong className="text-white text-xs font-semibold">
-                      {selectedUserHistory?.user?.name || selectedUserId}
-                    </strong>
-                    <span className="text-[11px] text-[#20b8cd] font-mono">
-                      ({selectedUserHistory?.user?.email})
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => selectedUserId && fetchUserHistory(selectedUserId)}
-                    disabled={loadingUserHistory}
-                    className="p-2 rounded-xl bg-[#202222] hover:bg-[#282a2c] text-[#858585] hover:text-white transition-colors cursor-pointer text-xs"
-                    title="Refresh user history"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${loadingUserHistory ? 'animate-spin' : ''}`} />
-                  </button>
-
-                  {selectedUserHistory?.activeSessionsCount && selectedUserHistory.activeSessionsCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => handleRevokeUserSessions(selectedUserId, selectedUserHistory?.user?.name || 'User')}
-                      className="px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 text-red-300 text-xs font-medium cursor-pointer transition-all active:scale-95"
-                    >
-                      Disconnect All Sessions ({selectedUserHistory.activeSessionsCount})
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              {loadingUserHistory && !selectedUserHistory ? (
-                <div className="p-12 text-center text-xs text-[#858585] flex flex-col items-center justify-center gap-3">
-                  <RefreshCw className="w-6 h-6 animate-spin text-[#20b8cd]" />
-                  <span>Loading complete login history and device audit...</span>
-                </div>
-              ) : selectedUserHistory ? (
-                <div className="space-y-5">
-                  {/* User Profile Hero Card */}
-                  <div className="p-5 rounded-2xl bg-[#131414] border border-[#2d3131] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 min-w-0 flex-1 w-full">
-                      <div className="relative shrink-0">
-                        <UserAvatar
-                          avatar={selectedUserHistory.user.avatar}
-                          name={selectedUserHistory.user.name}
-                          email={selectedUserHistory.user.email}
-                          sizeClass="w-12 h-12"
-                          roundedClass="rounded-full"
-                          textClass="text-sm"
-                          className="border border-[#2d3131] shadow-inner"
-                        />
-                        <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#131414] flex items-center justify-center ${
-                          selectedUserHistory.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
-                        }`} />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 min-w-0">
-                          <h3 className="text-sm font-semibold text-white tracking-tight truncate max-w-full">
-                            {selectedUserHistory.user.name || 'User'}
-                          </h3>
-
-                          {selectedUserHistory.user.role === 'owner' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold shrink-0">
-                              <Crown className="w-3 h-3 text-amber-400" />
-                              <span>ROOT OWNER</span>
-                            </span>
-                          )}
-
-                          {selectedUserHistory.user.role === 'admin' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold shrink-0">
-                              <Shield className="w-3 h-3 text-indigo-400" />
-                              <span>ADMINISTRATOR</span>
-                            </span>
-                          )}
-
-                          {selectedUserHistory.user.role !== 'owner' && selectedUserHistory.user.role !== 'admin' && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md font-mono bg-[#202222] text-[#9e9e9e] uppercase shrink-0">
-                              {selectedUserHistory.user.role}
-                            </span>
-                          )}
-
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
-                            selectedUserHistory.status === 'online'
-                              ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60'
-                              : 'bg-zinc-800 text-zinc-400'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${selectedUserHistory.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
-                            <span className="capitalize">{selectedUserHistory.status}</span>
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#858585] mt-1 font-mono min-w-0">
-                          <span className="truncate max-w-full">{selectedUserHistory.user.email}</span>
-                          <span>•</span>
-                          <span className="text-zinc-400 font-sans">
-                            Account: <strong className="text-white capitalize">{selectedUserHistory.user.accountType || 'Registered'}</strong>
-                          </span>
-                          <span>•</span>
-                          <span className="text-zinc-400 font-sans flex items-center gap-1">
-                            {selectedUserHistory.user.twoFactorEnabled ? (
-                              <span className="text-emerald-400 flex items-center gap-1 font-medium">
-                                <ShieldCheck className="w-3.5 h-3.5" />
-                                <span>Google Authenticator (2FA Active)</span>
-                              </span>
-                            ) : (
-                              <span className="text-zinc-500">2FA Not Enabled</span>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-right text-[11px] text-[#858585] font-mono shrink-0 space-y-1">
-                      <div>Created: {formatExactTimestamp(selectedUserHistory.user.createdAt)}</div>
-                      <div className="text-zinc-400">Last Login: {formatExactTimestamp(selectedUserHistory.user.lastLoginAt)}</div>
-                      <div className="flex flex-wrap justify-end gap-1 pt-1">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#191a1a] border border-emerald-700/40 text-[10px] text-emerald-300 font-sans">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          <span>{BUILTIN_DEFAULT_ENGINE.shortName} (Built-In)</span>
-                        </span>
-                        {normalizeExternalEngines(
-                          (selectedUserHistory.user as any).connectedExternalEngines ||
-                          selectedUserHistory.user.enabledEngines
-                        ).map((engId) => {
-                          const engInfo = EXTERNAL_ENGINES.find((e) => e.id === engId);
-                          if (!engInfo) return null;
-                          return (
-                            <span
-                              key={`detail-eng-${engId}`}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#191a1a] border border-sky-700/40 text-[10px] text-sky-300 font-sans"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-                              <span>{engInfo.shortName || engInfo.name} (External)</span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* High-Level Metric Cards (Prominently displaying Total Login Count) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                    {/* TOTAL LOGIN COUNT (Highlighted & Bold as requested) */}
-                    <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#20b8cd]/15 via-[#191a1a] to-[#131414] border border-[#20b8cd]/50 shadow-sm col-span-2 sm:col-span-1">
-                      <div className="flex items-center justify-between text-[#20b8cd] mb-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider">Total Logins</span>
-                        <LogIn className="w-4 h-4" />
-                      </div>
-                      <div className="text-2xl font-black text-white font-mono tracking-tight">
-                        {selectedUserHistory.totalLoginCount}
-                      </div>
-                      <span className="text-[10px] text-[#858585] block mt-0.5">
-                        Total lifetime sign-ins
-                      </span>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-[#131414] border border-emerald-800/40">
-                      <div className="flex items-center justify-between text-emerald-400 mb-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider">Successful</span>
-                        <CheckCircle2 className="w-4 h-4" />
-                      </div>
-                      <div className="text-xl font-bold text-emerald-400 font-mono">
-                        {selectedUserHistory.successfulLoginsCount}
-                      </div>
-                      <span className="text-[10px] text-[#858585] block mt-0.5">
-                        Authenticated logins
-                      </span>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-[#131414] border border-rose-800/30">
-                      <div className="flex items-center justify-between text-rose-400 mb-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider">Failed</span>
-                        <XCircle className="w-4 h-4" />
-                      </div>
-                      <div className="text-xl font-bold text-rose-400 font-mono">
-                        {selectedUserHistory.failedLoginsCount}
-                      </div>
-                      <span className="text-[10px] text-[#858585] block mt-0.5">
-                        Blocked / invalid
-                      </span>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-[#131414] border border-[#2d3131]">
-                      <div className="flex items-center justify-between text-[#20b8cd] mb-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider">Devices</span>
-                        <Laptop className="w-4 h-4" />
-                      </div>
-                      <div className="text-xl font-bold text-white font-mono">
-                        {selectedUserHistory.devices.length}
-                      </div>
-                      <span className="text-[10px] text-[#858585] block mt-0.5">
-                        Deduplicated hardware
-                      </span>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-[#131414] border border-[#2d3131]">
-                      <div className="flex items-center justify-between text-amber-400 mb-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider">Sessions</span>
-                        <Activity className="w-4 h-4" />
-                      </div>
-                      <div className="text-xl font-bold text-amber-300 font-mono flex items-center gap-1.5">
-                        {selectedUserHistory.activeSessionsCount > 0 && (
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        )}
-                        <span>{selectedUserHistory.activeSessionsCount}</span>
-                      </div>
-                      <span className="text-[10px] text-[#858585] block mt-0.5">
-                        Live connected
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* User's Deduplicated Connected Devices Panel */}
-                  <div className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] space-y-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2 text-white font-semibold">
-                        <Laptop className="w-4 h-4 text-[#20b8cd]" />
-                        <span>Connected Devices for this User ({selectedUserHistory.devices.length} Distinct Devices)</span>
-                      </div>
-                      <span className="text-[11px] text-[#858585]">
-                        Deduplicated by device footprint (NO repetitive cards)
-                      </span>
-                    </div>
-
-                    {selectedUserHistory.devices.length === 0 ? (
-                      <p className="text-xs text-[#858585] py-2">No hardware devices recorded for this user.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        {selectedUserHistory.devices.map((d, dIdx) => {
-                          const isDevOnline = d.status === 'online';
-                          const isCur = d.isCurrentDevice || d.deviceId === deviceId;
-
-                          return (
-                            <div 
-                              key={`user-dev-${d.deviceId}-${dIdx}`}
-                              className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs ${
-                                isDevOnline 
-                                  ? 'bg-[#191a1a] border-emerald-800/40 shadow-xs' 
-                                  : 'bg-[#161717] border-[#242828]'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                                  isDevOnline ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-700/50' : 'bg-[#202222] text-[#858585]'
-                                }`}>
-                                  {renderDeviceIcon(d.deviceType, 'w-4 h-4')}
-                                </div>
-                                <div className="truncate">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-semibold text-white truncate">{d.deviceName}</span>
-                                    {isCur && (
-                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-sky-950/80 text-sky-400 border border-sky-700/50 shrink-0">
-                                        THIS DEVICE
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[11px] text-[#858585] font-mono block truncate">
-                                    {d.os} • {d.browser} • <strong className="text-[#20b8cd] font-sans font-medium">{d.sessionsCount} session(s)</strong>
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${
-                                  isDevOnline ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-700/60' : 'bg-zinc-800 text-zinc-400'
-                                }`}>
-                                  {d.status}
-                                </span>
-
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRevokeDevice(d.deviceId, selectedUserId || selectedUserHistory?.user?.id, d.deviceName, d.deviceKey);
-                                  }}
-                                  className="p-1 rounded-lg hover:bg-red-950/60 text-[#858585] hover:text-red-400 cursor-pointer transition-colors"
-                                  title={`Remove ${d.deviceName}`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* COMPLETE LOGIN HISTORY TIMELINE / AUDIT TABLE */}
-                  <div className="space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <History className="w-4 h-4 text-sky-400" />
-                          <h4 className="text-sm font-bold text-white tracking-tight">
-                            Complete Login History ({filteredUserHistoryLogs.length} Events)
-                          </h4>
-                        </div>
-                        <p className="text-[11px] text-[#858585]">
-                          Every login attempt with exact chronological timestamps, authentication mechanism, and device
-                        </p>
-                      </div>
-
-                      {/* Filter & Search inside History */}
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center rounded-xl bg-[#131414] p-0.5 border border-[#2d3131] text-[11px]">
-                          {(['all', 'success', 'failed'] as const).map(flt => (
-                            <button
-                              key={flt}
-                              type="button"
-                              onClick={() => setHistoryStatusFilter(flt)}
-                              className={`px-2.5 py-1 rounded-lg capitalize cursor-pointer transition-all ${
-                                historyStatusFilter === flt
-                                  ? 'bg-[#20b8cd] text-black font-semibold'
-                                  : 'text-[#858585] hover:text-white'
-                              }`}
-                            >
-                              {flt}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="relative">
-                          <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#858585]" />
-                          <input
-                            type="text"
-                            value={historySearch}
-                            onChange={(e) => setHistorySearch(e.target.value)}
-                            placeholder="Filter events..."
-                            className="pl-7 pr-2.5 py-1 bg-[#131414] border border-[#2d3131] rounded-xl text-xs text-white placeholder-[#5c6166] outline-none w-32 sm:w-44"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {filteredUserHistoryLogs.length === 0 ? (
-                      <div className="p-8 text-center text-xs text-[#858585] bg-[#131414] rounded-2xl border border-[#2d3131]">
-                        No login events match the current filter.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {filteredUserHistoryLogs.map((evt, evtIdx) => {
-                          const isEvtSuccess = evt.status === 'success';
-
-                          return (
-                            <div
-                              key={`log-evt-${evt.id || evt.timestamp}-${evtIdx}`}
-                              className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
-                                isEvtSuccess 
-                                  ? 'bg-[#131414] border-[#242828] hover:border-[#2d3131]' 
-                                  : 'bg-red-950/20 border-red-900/40 hover:border-red-850'
-                              }`}
-                            >
-                              <div className="flex items-start sm:items-center gap-3">
-                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
-                                  isEvtSuccess 
-                                    ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40' 
-                                    : 'bg-rose-950/60 text-rose-400 border border-rose-800/40'
-                                }`}>
-                                  {isEvtSuccess ? (
-                                    <CheckCircle2 className="w-4 h-4" />
-                                  ) : (
-                                    <XCircle className="w-4 h-4" />
-                                  )}
-                                </div>
-
-                                <div className="space-y-0.5">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-semibold text-white">
-                                      {isEvtSuccess ? 'Authenticated' : 'Login Failed'}
-                                    </span>
-
-                                    {/* Auth Method Badge */}
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-[#202222] text-[#20b8cd] border border-[#20b8cd]/30 flex items-center gap-1">
-                                      {evt.authMethod?.includes('2FA') || evt.authMethod?.includes('Authenticator') ? (
-                                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                                      ) : evt.authMethod?.includes('Google') ? (
-                                        <Zap className="w-3 h-3 text-amber-400" />
-                                      ) : evt.authMethod?.includes('Guest') ? (
-                                        <Activity className="w-3 h-3 text-purple-400" />
-                                      ) : (
-                                        <KeyRound className="w-3 h-3 text-sky-400" />
-                                      )}
-                                      <span>{evt.authMethod || 'Password'}</span>
-                                    </span>
-
-                                    {!isEvtSuccess && evt.failReason && (
-                                      <span className="text-[10px] text-rose-300 font-mono">
-                                        Reason: {evt.failReason}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[#858585]">
-                                    <span className="flex items-center gap-1">
-                                      {renderDeviceIcon(evt.deviceType, 'w-3.5 h-3.5')}
-                                      <span>{evt.os || 'Desktop'} • {evt.browser || 'Browser'}</span>
-                                    </span>
-                                    <span>•</span>
-                                    <span>Route: <code className="text-zinc-400">{evt.entryRoute || '/'}</code></span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Exact Timestamp Display (Date, Time, Seconds) */}
-                              <div className="text-left sm:text-right font-mono shrink-0 pl-11 sm:pl-0">
-                                <div className="text-xs text-white font-medium">
-                                  {formatExactTimestamp(evt.timestamp)}
-                                </div>
-                                <div className="text-[10px] text-[#858585]">
-                                  {formatRelativeTime(evt.timestamp)}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              {/* TAB 1: CONNECTED DEVICES GROUPED BY USER (DEDUPLICATED, NO REPEATED CARDS) */}
+              {/* TAB 1: CONNECTED DEVICES GROUPED BY USER (CLEAN UNIFORM SUMMARY CARDS) */}
               {activeTab === 'devices' && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#858585]">
                     <div>
-                      <span className="text-white font-semibold">Grouped & displayed by user account.</span>
-                      <span className="ml-1">Each card consolidates deduplicated physical devices. Click any user to open their complete login history.</span>
+                      <span className="text-white font-semibold">Connected user accounts.</span>
+                      <span className="ml-1">Click any user card to inspect their complete device history, individual device sessions, and revoke actions.</span>
                     </div>
                     <span className="font-mono text-white shrink-0">
                       {filteredUserDevices.length} Users ({totalDeduplicatedDevices} Distinct Devices)
@@ -1179,27 +743,28 @@ export const AdminDashboardModal: React.FC = () => {
                       No users match the search criteria.
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch">
                       {filteredUserDevices.map((u, uIdx) => {
                         const isUserOnline = u.status === 'online';
                         const isOwnerUser = u.role === 'owner';
                         const isAdminUser = u.role === 'admin';
 
                         return (
-                          <div
+                          <button
                             key={`user-group-${u.userId || u.userEmail}-${uIdx}`}
+                            type="button"
                             onClick={() => handleSelectUser(u.userId)}
-                            className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] hover:border-[#20b8cd]/60 hover:bg-[#161717] transition-all cursor-pointer group shadow-sm flex flex-col justify-between space-y-3"
+                            className="w-full h-full text-left p-4 rounded-2xl bg-[#131414] border border-[#2d3131] hover:border-[#20b8cd]/60 hover:bg-[#161717] transition-all cursor-pointer group shadow-sm flex flex-col justify-between gap-3.5"
                           >
-                            {/* User Header */}
-                            <div className="flex items-start justify-between gap-3">
+                            {/* User Header: Avatar, Username, Role Badge, Email & Status Badge */}
+                            <div className="flex items-start justify-between gap-3 w-full">
                               <div className="flex items-center gap-3 min-w-0 flex-1">
                                 <div className="relative shrink-0">
                                   <UserAvatar
                                     avatar={u.avatar}
                                     name={u.userName}
                                     email={u.userEmail}
-                                    sizeClass="w-9 h-9"
+                                    sizeClass="w-10 h-10"
                                     roundedClass="rounded-full"
                                     textClass="text-xs"
                                     className="border border-[#2d3131]"
@@ -1216,21 +781,21 @@ export const AdminDashboardModal: React.FC = () => {
                                     </span>
 
                                     {isOwnerUser && (
-                                      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold shrink-0">
+                                      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold shrink-0">
                                         <Crown className="w-2.5 h-2.5 text-amber-400" />
                                         <span>OWNER</span>
                                       </span>
                                     )}
 
                                     {isAdminUser && (
-                                      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold shrink-0">
+                                      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold shrink-0">
                                         <Shield className="w-2.5 h-2.5 text-indigo-400" />
                                         <span>ADMIN</span>
                                       </span>
                                     )}
 
                                     {!isOwnerUser && !isAdminUser && (
-                                      <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-[#202222] text-[#9e9e9e] uppercase shrink-0">
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded font-mono bg-[#202222] text-[#9e9e9e] uppercase shrink-0">
                                         {u.role}
                                       </span>
                                     )}
@@ -1242,7 +807,7 @@ export const AdminDashboardModal: React.FC = () => {
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
                                   isUserOnline
                                     ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60'
@@ -1251,124 +816,27 @@ export const AdminDashboardModal: React.FC = () => {
                                   <span className={`w-1.5 h-1.5 rounded-full ${isUserOnline ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
                                   <span className="capitalize">{u.status}</span>
                                 </span>
-                                <ChevronRight className="w-4 h-4 text-[#858585] group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                                <ChevronRight className="w-4 h-4 text-[#858585] group-hover:text-[#20b8cd] group-hover:translate-x-0.5 transition-all" />
                               </div>
                             </div>
 
-                            {/* User Metrics Pill Strip */}
-                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono">
-                              <span className="px-2 py-0.5 rounded-lg bg-[#202222] text-[#20b8cd] border border-[#20b8cd]/30 font-semibold">
+                            {/* Compact Summary Pills: Total Logins, Distinct Devices, Active Sessions */}
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono pt-1 border-t border-[#202224] w-full">
+                              <span className="px-2 py-1 rounded-lg bg-[#202222] text-[#20b8cd] border border-[#20b8cd]/30 font-semibold">
                                 Total Logins: {u.totalLoginsCount}
                               </span>
-                              <span className="px-2 py-0.5 rounded-lg bg-[#202222] text-zinc-300 border border-[#2d3131]">
+                              <span className="px-2 py-1 rounded-lg bg-[#202222] text-zinc-300 border border-[#2d3131]">
                                 {u.devices.length} Distinct Device{u.devices.length === 1 ? '' : 's'}
                               </span>
-                              {u.activeSessionsCount > 0 && (
-                                <span className="px-2 py-0.5 rounded-lg bg-emerald-950/70 text-emerald-300 border border-emerald-700/50">
-                                  {u.activeSessionsCount} Active Session{u.activeSessionsCount === 1 ? '' : 's'}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Connected AI Engines for this user */}
-                            <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                              <span className="text-[#858585] font-mono mr-0.5">Engines:</span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#191a1a] border border-emerald-800/40 text-emerald-200">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                {renderEngineIcon(BUILTIN_DEFAULT_ENGINE.iconType, 'w-3 h-3')}
-                                <span>{BUILTIN_DEFAULT_ENGINE.shortName}</span>
-                              </span>
-                              {normalizeExternalEngines((u as any).connectedExternalEngines || u.enabledEngines).map((engId) => {
-                                const engInfo = EXTERNAL_ENGINES.find((e) => e.id === engId);
-                                if (!engInfo) return null;
-                                return (
-                                  <span
-                                    key={`card-eng-${u.userId}-${engId}`}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#191a1a] border border-sky-800/40 text-sky-200"
-                                  >
-                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
-                                    {renderEngineIcon(engInfo.iconType, 'w-3 h-3')}
-                                    <span className="truncate max-w-[110px]">{engInfo.shortName || engInfo.name}</span>
-                                  </span>
-                                );
-                              })}
-                            </div>
-
-                            {/* Deduplicated Devices List under this User */}
-                            <div className="space-y-1.5 pt-1">
-                              <span className="text-[10px] font-semibold text-[#858585] uppercase tracking-wider block">
-                                Deduplicated Devices ({u.devices.length})
-                              </span>
-
-                              {u.devices.length === 0 ? (
-                                <span className="text-[11px] text-[#5c6166] italic">No active physical devices registered</span>
-                              ) : (
-                                <div className="space-y-1.5">
-                                  {u.devices.map((d, dIdx) => {
-                                    const isDevOnline = d.status === 'online';
-                                    const isCur = d.isCurrentDevice || d.deviceId === deviceId;
-
-                                    return (
-                                      <div 
-                                        key={`dev-chip-${d.deviceId}-${dIdx}`}
-                                        className={`px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-[11px] ${
-                                          isDevOnline 
-                                            ? 'bg-[#191a1a] border-emerald-800/30 text-white' 
-                                            : 'bg-[#161717] border-[#242828] text-zinc-400'
-                                        }`}
-                                      >
-                                        <div className="flex items-center gap-2 truncate">
-                                          <span className={isDevOnline ? 'text-emerald-400' : 'text-[#858585]'}>
-                                            {renderDeviceIcon(d.deviceType, 'w-3.5 h-3.5')}
-                                          </span>
-                                          <span className="font-medium text-white truncate">{d.deviceName}</span>
-                                          {isCur && (
-                                            <span className="px-1 py-0.1 rounded text-[8px] font-mono bg-sky-950 text-sky-400 border border-sky-700/50 shrink-0">
-                                              CURRENT
-                                            </span>
-                                          )}
-                                          <span className="text-[#858585] font-mono shrink-0">
-                                            ({d.sessionsCount} sessions)
-                                          </span>
-                                        </div>
-
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                          <span className={`text-[10px] font-mono shrink-0 ${
-                                            isDevOnline ? 'text-emerald-400 font-semibold' : 'text-zinc-500'
-                                          }`}>
-                                            {isDevOnline ? 'Online' : 'Offline'}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleRevokeDevice(d.deviceId, u.userId, d.deviceName, d.deviceKey);
-                                            }}
-                                            className="p-1 rounded-lg hover:bg-red-950/60 text-[#858585] hover:text-red-400 cursor-pointer transition-colors"
-                                            title={`Remove ${d.deviceName}`}
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Card Footer: Last active & Click prompt */}
-                            <div className="pt-2.5 border-t border-[#242828] flex items-center justify-between text-[11px]">
-                              <span className="text-[10px] text-[#858585] font-mono">
-                                Last login: {formatRelativeTime(u.lastLoginAt)}
-                              </span>
-
-                              <span className="text-[11px] font-medium text-[#20b8cd] group-hover:underline flex items-center gap-1">
-                                <span>View Complete Login History</span>
-                                <ChevronRight className="w-3.5 h-3.5" />
+                              <span className={`px-2 py-1 rounded-lg border ${
+                                u.activeSessionsCount > 0
+                                  ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/50'
+                                  : 'bg-[#1a1b1c] text-zinc-500 border-[#282a2c]'
+                              }`}>
+                                {u.activeSessionsCount} Active Session{u.activeSessionsCount === 1 ? '' : 's'}
                               </span>
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
@@ -1737,10 +1205,510 @@ export const AdminDashboardModal: React.FC = () => {
                   ))}
                 </div>
               )}
-            </>
-          )}
         </div>
       </div>
+
+      {/* SLIDE-OVER USER DEVICE HISTORY & SESSION AUDIT DRAWER */}
+      {selectedUserId && (
+        <div
+          className="fixed inset-0 z-[60] flex justify-end bg-black/70 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={handleBackFromUserDetail}
+        >
+          <div
+            className="w-full max-w-3xl h-full bg-[#161718] text-[#ededed] border-l border-[#2d3131] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div className="px-5 py-4 border-b border-[#2d3131] bg-[#131414] flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={handleBackFromUserDetail}
+                  className="p-2 rounded-xl bg-[#202222] hover:bg-[#282a2c] text-[#858585] hover:text-white transition-colors cursor-pointer"
+                  title="Close drawer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="text-sm font-semibold text-white tracking-tight truncate">
+                      {selectedUserHistory?.user?.name || 'User Device History'}
+                    </h3>
+                    {selectedUserHistory?.status && (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
+                        selectedUserHistory.status === 'online'
+                          ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/60'
+                          : 'bg-zinc-800 text-zinc-400'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${selectedUserHistory.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                        <span className="capitalize">{selectedUserHistory.status}</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#20b8cd] font-mono truncate">
+                    {selectedUserHistory?.user?.email || selectedUserId}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => selectedUserId && fetchUserHistory(selectedUserId)}
+                  disabled={loadingUserHistory}
+                  className="p-2 rounded-xl bg-[#202222] hover:bg-[#282a2c] text-[#858585] hover:text-white transition-colors cursor-pointer text-xs"
+                  title="Refresh device history"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingUserHistory ? 'animate-spin' : ''}`} />
+                </button>
+
+                {selectedUserHistory?.activeSessionsCount && selectedUserHistory.activeSessionsCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRevokeUserSessions(selectedUserId, selectedUserHistory?.user?.name || 'User')}
+                    className="px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 text-red-300 text-xs font-medium cursor-pointer transition-all active:scale-95"
+                  >
+                    Disconnect All ({selectedUserHistory.activeSessionsCount})
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={handleBackFromUserDetail}
+                  className="p-2 rounded-xl bg-[#202222] hover:bg-[#282a2c] text-[#858585] hover:text-white transition-colors cursor-pointer"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Drawer Body */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
+              {loadingUserHistory && !selectedUserHistory ? (
+                <div className="p-12 text-center text-xs text-[#858585] flex flex-col items-center justify-center gap-3">
+                  <RefreshCw className="w-6 h-6 animate-spin text-[#20b8cd]" />
+                  <span>Loading complete device history and sessions...</span>
+                </div>
+              ) : selectedUserHistory ? (
+                <>
+                  {/* User Profile Summary Card */}
+                  <div className="p-4 rounded-2xl bg-[#131414] border border-[#2d3131] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1 w-full">
+                      <div className="relative shrink-0">
+                        <UserAvatar
+                          avatar={selectedUserHistory.user.avatar}
+                          name={selectedUserHistory.user.name}
+                          email={selectedUserHistory.user.email}
+                          sizeClass="w-11 h-11"
+                          roundedClass="rounded-full"
+                          textClass="text-sm"
+                          className="border border-[#2d3131]"
+                        />
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#131414] ${
+                          selectedUserHistory.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-600'
+                        }`} />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <span className="text-sm font-semibold text-white truncate">
+                            {selectedUserHistory.user.name || 'User'}
+                          </span>
+                          {selectedUserHistory.user.role === 'owner' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-amber-950/80 text-amber-300 border border-amber-600/40 font-semibold shrink-0">
+                              <Crown className="w-3 h-3 text-amber-400" />
+                              <span>OWNER</span>
+                            </span>
+                          )}
+                          {selectedUserHistory.user.role === 'admin' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono bg-indigo-950/80 text-indigo-300 border border-indigo-600/40 font-semibold shrink-0">
+                              <Shield className="w-3 h-3 text-indigo-400" />
+                              <span>ADMIN</span>
+                            </span>
+                          )}
+                          {selectedUserHistory.user.role !== 'owner' && selectedUserHistory.user.role !== 'admin' && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md font-mono bg-[#202222] text-[#9e9e9e] uppercase shrink-0">
+                              {selectedUserHistory.user.role}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[#858585] mt-1 font-mono min-w-0">
+                          <span className="truncate">{selectedUserHistory.user.email}</span>
+                          <span>•</span>
+                          <span className="text-zinc-400 font-sans capitalize">
+                            {selectedUserHistory.user.accountType || 'Registered'}
+                          </span>
+                          <span>•</span>
+                          <span className="font-sans">
+                            {selectedUserHistory.user.twoFactorEnabled ? (
+                              <span className="text-emerald-400 inline-flex items-center gap-1 font-medium">
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                <span>2FA Active</span>
+                              </span>
+                            ) : (
+                              <span className="text-zinc-500">2FA Off</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-left sm:text-right text-[11px] text-[#858585] font-mono shrink-0 space-y-1">
+                      <div>Created: {formatExactTimestamp(selectedUserHistory.user.createdAt)}</div>
+                      <div className="text-zinc-400">Last Login: {formatExactTimestamp(selectedUserHistory.user.lastLoginAt)}</div>
+                    </div>
+                  </div>
+
+                  {/* Metrics Row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                    <div className="p-3 rounded-2xl bg-gradient-to-br from-[#20b8cd]/15 via-[#191a1a] to-[#131414] border border-[#20b8cd]/50 col-span-2 sm:col-span-1">
+                      <div className="flex items-center justify-between text-[#20b8cd] mb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider">Total Logins</span>
+                        <LogIn className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="text-xl font-black text-white font-mono">
+                        {selectedUserHistory.totalLoginCount}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-[#131414] border border-emerald-800/40">
+                      <div className="flex items-center justify-between text-emerald-400 mb-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider">Successful</span>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="text-xl font-bold text-emerald-400 font-mono">
+                        {selectedUserHistory.successfulLoginsCount}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-[#131414] border border-rose-800/30">
+                      <div className="flex items-center justify-between text-rose-400 mb-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider">Failed</span>
+                        <XCircle className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="text-xl font-bold text-rose-400 font-mono">
+                        {selectedUserHistory.failedLoginsCount}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-[#131414] border border-[#2d3131]">
+                      <div className="flex items-center justify-between text-[#20b8cd] mb-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider">Devices</span>
+                        <Laptop className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="text-xl font-bold text-white font-mono">
+                        {selectedUserHistory.devices.length}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-[#131414] border border-[#2d3131]">
+                      <div className="flex items-center justify-between text-amber-400 mb-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider">Active</span>
+                        <Activity className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="text-xl font-bold text-amber-300 font-mono flex items-center gap-1.5">
+                        {selectedUserHistory.activeSessionsCount > 0 && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        )}
+                        <span>{selectedUserHistory.activeSessionsCount}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Complete Device History & Individual Device Sessions */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 text-white font-semibold">
+                        <Laptop className="w-4 h-4 text-[#20b8cd]" />
+                        <span>Device History & Individual Sessions ({selectedUserHistory.devices.length} Distinct Devices)</span>
+                      </div>
+                    </div>
+
+                    {selectedUserHistory.devices.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-[#858585] bg-[#131414] rounded-2xl border border-[#2d3131]">
+                        No hardware devices recorded for this user.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {selectedUserHistory.devices.map((d, dIdx) => {
+                          const isDevOnline = d.status === 'online';
+                          const isCur = d.isCurrentDevice || d.deviceId === deviceId;
+                          const sortedSessions = [...(d.sessions || [])].sort(
+                            (a, b) => new Date(b.loginAt).getTime() - new Date(a.loginAt).getTime()
+                          );
+
+                          return (
+                            <div
+                              key={`drawer-dev-${d.deviceId}-${dIdx}`}
+                              className={`p-4 rounded-2xl border space-y-3 ${
+                                isDevOnline
+                                  ? 'bg-[#131414] border-emerald-800/45 shadow-xs'
+                                  : 'bg-[#131414] border-[#282a2c]'
+                              }`}
+                            >
+                              {/* Device Header + Delete/Revoke Action */}
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                    isDevOnline
+                                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-700/50'
+                                      : 'bg-[#202222] text-[#858585]'
+                                  }`}>
+                                    {renderDeviceIcon(d.deviceType, 'w-4 h-4')}
+                                  </div>
+
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                                      <span className="text-sm font-semibold text-white truncate">
+                                        {d.deviceName}
+                                      </span>
+                                      {isCur && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-sky-950/80 text-sky-400 border border-sky-700/50 shrink-0">
+                                          THIS DEVICE
+                                        </span>
+                                      )}
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium capitalize shrink-0 ${
+                                        isDevOnline
+                                          ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-700/60'
+                                          : 'bg-zinc-800 text-zinc-400'
+                                      }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${isDevOnline ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                                        <span>{d.status}</span>
+                                      </span>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-[#858585] font-mono mt-0.5">
+                                      <span>{d.os} • {d.browser}</span>
+                                      <span>•</span>
+                                      <span>First seen: {formatExactTimestamp(d.firstSeenAt)}</span>
+                                      <span>•</span>
+                                      <span>Last active: {formatRelativeTime(d.lastActiveAt)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRevokeDevice(d.deviceId, selectedUserId || selectedUserHistory?.user?.id, d.deviceName, d.deviceKey);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-xl bg-red-950/35 hover:bg-red-900/55 border border-red-800/40 text-red-300 text-[11px] font-medium cursor-pointer transition-colors flex items-center gap-1.5 shrink-0"
+                                  title={`Revoke and delete ${d.deviceName}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Revoke Device</span>
+                                </button>
+                              </div>
+
+                              {/* Individual Device Sessions List */}
+                              <div className="pt-2.5 border-t border-[#222426] space-y-1.5">
+                                <div className="flex items-center justify-between text-[10px] font-mono text-[#858585] uppercase tracking-wider">
+                                  <span>Individual Sessions ({sortedSessions.length})</span>
+                                  <span>Entry Route: {d.entryRoute || '/'}</span>
+                                </div>
+
+                                {sortedSessions.length === 0 ? (
+                                  <p className="text-[11px] text-[#5c6166] italic">No recorded sessions on this device.</p>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {sortedSessions.map((sess, sIdx) => {
+                                      const isSessOnline = sess.status === 'online';
+                                      const canRevokeSession = !sess.logoutAt && sess.status !== 'expired';
+
+                                      return (
+                                        <div
+                                          key={`dev-sess-${sess.sessionId || sIdx}`}
+                                          className="px-3 py-2 rounded-xl bg-[#191a1b] border border-[#26282a] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]"
+                                        >
+                                          <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono capitalize shrink-0 ${
+                                              isSessOnline
+                                                ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-700/50'
+                                                : sess.status === 'expired'
+                                                  ? 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                                                  : 'bg-zinc-800 text-zinc-300'
+                                            }`}>
+                                              <span className={`w-1.5 h-1.5 rounded-full ${isSessOnline ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                                              <span>{sess.status}</span>
+                                            </span>
+                                            <span className="font-mono text-white">
+                                              Login: {formatExactTimestamp(sess.loginAt)}
+                                            </span>
+                                            <span className="text-[#858585] font-mono">
+                                              • Active: {formatRelativeTime(sess.lastActivityAt)}
+                                            </span>
+                                            {sess.logoutAt && (
+                                              <span className="text-[#858585] font-mono">
+                                                • Ended: {formatExactTimestamp(sess.logoutAt)}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-[10px] font-mono text-[#20b8cd]">
+                                              {sess.durationFormatted}
+                                            </span>
+                                            {canRevokeSession && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRevokeSession(sess.sessionId)}
+                                                className="px-2 py-0.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 text-[10px] cursor-pointer transition-colors"
+                                                title="Disconnect this session"
+                                              >
+                                                Revoke
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Complete Login History Timeline */}
+                  <div className="space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <History className="w-4 h-4 text-sky-400" />
+                          <h4 className="text-sm font-bold text-white tracking-tight">
+                            Complete Login History ({filteredUserHistoryLogs.length} Events)
+                          </h4>
+                        </div>
+                        <p className="text-[11px] text-[#858585]">
+                          Chronological authentication attempts across all devices
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center rounded-xl bg-[#131414] p-0.5 border border-[#2d3131] text-[11px]">
+                          {(['all', 'success', 'failed'] as const).map(flt => (
+                            <button
+                              key={flt}
+                              type="button"
+                              onClick={() => setHistoryStatusFilter(flt)}
+                              className={`px-2.5 py-1 rounded-lg capitalize cursor-pointer transition-all ${
+                                historyStatusFilter === flt
+                                  ? 'bg-[#20b8cd] text-black font-semibold'
+                                  : 'text-[#858585] hover:text-white'
+                              }`}
+                            >
+                              {flt}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="relative">
+                          <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#858585]" />
+                          <input
+                            type="text"
+                            value={historySearch}
+                            onChange={(e) => setHistorySearch(e.target.value)}
+                            placeholder="Filter events..."
+                            className="pl-7 pr-2.5 py-1 bg-[#131414] border border-[#2d3131] rounded-xl text-xs text-white placeholder-[#5c6166] outline-none w-32 sm:w-44"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {filteredUserHistoryLogs.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-[#858585] bg-[#131414] rounded-2xl border border-[#2d3131]">
+                        No login events match the current filter.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {filteredUserHistoryLogs.map((evt, evtIdx) => {
+                          const isEvtSuccess = evt.status === 'success';
+
+                          return (
+                            <div
+                              key={`drawer-log-evt-${evt.id || evt.timestamp}-${evtIdx}`}
+                              className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                                isEvtSuccess
+                                  ? 'bg-[#131414] border-[#242828] hover:border-[#2d3131]'
+                                  : 'bg-red-950/20 border-red-900/40'
+                              }`}
+                            >
+                              <div className="flex items-start sm:items-center gap-3">
+                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
+                                  isEvtSuccess
+                                    ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
+                                    : 'bg-rose-950/60 text-rose-400 border border-rose-800/40'
+                                }`}>
+                                  {isEvtSuccess ? (
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  ) : (
+                                    <XCircle className="w-4 h-4" />
+                                  )}
+                                </div>
+
+                                <div className="space-y-0.5">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-semibold text-white">
+                                      {isEvtSuccess ? 'Authenticated' : 'Login Failed'}
+                                    </span>
+
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-[#202222] text-[#20b8cd] border border-[#20b8cd]/30 flex items-center gap-1">
+                                      {evt.authMethod?.includes('2FA') || evt.authMethod?.includes('Authenticator') ? (
+                                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                                      ) : evt.authMethod?.includes('Google') ? (
+                                        <Zap className="w-3 h-3 text-amber-400" />
+                                      ) : evt.authMethod?.includes('Guest') ? (
+                                        <Activity className="w-3 h-3 text-purple-400" />
+                                      ) : (
+                                        <KeyRound className="w-3 h-3 text-sky-400" />
+                                      )}
+                                      <span>{evt.authMethod || 'Password'}</span>
+                                    </span>
+
+                                    {!isEvtSuccess && evt.failReason && (
+                                      <span className="text-[10px] text-rose-300 font-mono">
+                                        Reason: {evt.failReason}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-[#858585]">
+                                    <span className="flex items-center gap-1">
+                                      {renderDeviceIcon(evt.deviceType, 'w-3.5 h-3.5')}
+                                      <span>{evt.os || 'Desktop'} • {evt.browser || 'Browser'}</span>
+                                    </span>
+                                    <span>•</span>
+                                    <span>Route: <code className="text-zinc-400">{evt.entryRoute || '/'}</code></span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-left sm:text-right font-mono shrink-0 pl-11 sm:pl-0">
+                                <div className="text-xs text-white font-medium">
+                                  {formatExactTimestamp(evt.timestamp)}
+                                </div>
+                                <div className="text-[10px] text-[#858585]">
+                                  {formatRelativeTime(evt.timestamp)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

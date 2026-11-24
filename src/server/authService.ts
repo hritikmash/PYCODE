@@ -371,9 +371,16 @@ export function readAppConfig(): AppConfig {
   try {
     const raw = fs.readFileSync(APP_CONFIG_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
+    const rawEngine = parsed?.defaultEngine;
+    const validEngine =
+      rawEngine === 'turbo_race' ||
+      (typeof rawEngine === 'string' && SUPPORTED_EXTERNAL_ENGINES.includes(rawEngine as ExternalEngineId))
+        ? rawEngine
+        : 'turbo_race';
     return {
       ...defaultAppConfig,
       ...parsed,
+      defaultEngine: validEngine,
       announcementBanner: {
         ...defaultAppConfig.announcementBanner,
         ...(parsed.announcementBanner || {})
@@ -2532,8 +2539,7 @@ export function updateUserRole(
   });
   writeSessions(sessions);
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = target;
-  return userProfile;
+  return toSafeUserProfile(target);
 }
 
 export function appointAdministrator(
@@ -2603,8 +2609,7 @@ export function appointAdministrator(
   });
   writeSessions(sessions);
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = targetUser;
-  return userProfile;
+  return toSafeUserProfile(targetUser);
 }
 
 export function revokeAdministrator(
@@ -2636,8 +2641,7 @@ export function revokeAdministrator(
   });
   writeSessions(sessions);
 
-  const { passwordHash: _, salt: __, backupCodes: ___, twoFactorSecret: ____, ...userProfile } = target;
-  return userProfile;
+  return toSafeUserProfile(target);
 }
 
 export function deleteUserAccount(targetUserId: string, requestingUser: UserProfile): boolean {
